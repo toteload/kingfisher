@@ -1,0 +1,5 @@
+SDL3.dll
+*.obj
+*.exe
+*.ilk
+*.pdb

@@ -1,0 +1,39 @@
+For spectral power distribution, and other measurements of light, they often put wavelength on the
+x-axis, but use a normalized y-axis of unspecified unit. Or maybe in radiant flux (W).
+It is still a bit confusing because ther are many terms that are named similarly.
+https://en.wikipedia.org/wiki/Radiant_energy#SI_radiometry_units
+Generally, you want to use terms from photometry and colorimetry.
+
+Terms that start with "luminous" come from photometry, while terms that start with "radiant" come from radiometry.
+
+The rendering equation is defined in terms of radiance.
+This is nice, because their units appear more intuitive.
+
+The procedure for conversion from spectral radiance to luminance is standardized by CIE and ISO.
+
+Candela (cd) is the unit of luminous intensity.
+It is luminous power per unit solid angle.
+A common wax candle has a luminous intensity of roughly 1 cd.
+
+Lumen (lm) is the unit of lumionous flux or luminous power.
+lm = cd . sr
+
+
+Website where I got lookup table for wavelength -> XYZ
+http://cvrl.ucl.ac.uk/ciexyzpr.htm
+
+https://cie.co.at/datatable/cie-1931-colour-matching-functions-2-degree-observer
+
+Luminance values:
+1.6 * 10e9 cd/m^2   Solar disk at noon
+6   * 10e5 cd/m^2   Solar disk at horizon
+8   * 10e3 cd/m^2   Average clear sky
+2.5 * 10e3 cd/m^2   Moon surface
+4   * 10e-4 cd/m^2  Darkest sky
+
+https://www.schorsch.com/en/kbase/glossary/luminance.html
+
+
+Questions:
+Q: How do you go from a spectral power distribution to RGB?
+A: There is a formula to go from wavelength to CIELAB XYZ. 
