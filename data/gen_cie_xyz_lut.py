@@ -73,7 +73,7 @@ def print_ppm(rows):
 
     for [nm, *xyz] in rows:
         xyz = list(map(float, xyz))
-        xyz = normalize_xyz([10 * s for s in xyz])
+        xyz = normalize_xyz([70 * s for s in xyz])
         rgb = xyz_to_rgb(xyz)
         rgb = linear_rgb_to_srgb(rgb)
         line += f'{int(rgb[0] * 255)} {int(rgb[1] * 255)} {int(rgb[2] * 255)} '
@@ -89,5 +89,5 @@ if __name__ == '__main__':
     rows = list(reader)
     cols = list(zip(*rows))
 
-    #print_ppm(rows)
-    print_c_lut(cols)
+    print_ppm(rows)
+    #print_c_lut(cols)

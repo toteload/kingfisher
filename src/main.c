@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <math.h>
+#include <stdio.h>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -7,6 +8,7 @@
 typedef uint8_t u8;
 typedef uint32_t u32;
 typedef  int32_t i32;
+typedef uint64_t u64;
 typedef float f32;
 typedef double f64;
 
@@ -14,56 +16,143 @@ extern float const cie_xyz_x[256];
 extern float const cie_xyz_y[256];
 extern float const cie_xyz_z[256];
 
+#define PI 3.14159265358979323846f
+
 // Spectral samples are stored as an 8-bit int wavelength and a 32-bit float power.
 // To get the true wavelength in nm multiply by 2 and add 360.
 // A stored wavelength of 140 represents a wavelength of 2 * 140 + 320 = 600 nm.
 
-void update_texture(void *buffer, i32 width, i32 height, i32 pitch) {
-  u8 *pixels = buffer;
-  for (i32 y = 0; y < height; y++) {
-    for (i32 x = 0; x < width; x++) {
-      pixels[y * pitch + x * 4 + 0] = 0x00; // Blue
-      pixels[y * pitch + x * 4 + 1] = 0x00; // Green
-      pixels[y * pitch + x * 4 + 2] = 0xff; // Red
-    }
-  }
-}
-
-typedef struct Vector3 {
+typedef struct vec3 {
   f32 x;
   f32 y;
   f32 z;
-} Vector3;
+} vec3;
+
+typedef struct HitRecord {
+  f32 t;
+  vec3 n;
+} HitRecord;
 
 typedef struct Ray {
-  Vector3 origin;
+  vec3 origin;
   f32 min_t;
-  Vector3 dir;
+  vec3 dir;
   f32 max_t;
 } Ray;
 
 typedef struct Sphere {
-  Vector3 pos;
+  vec3 origin;
   f32 radius;
 } Sphere;
 
 #define F32_NO_HIT INFINITY
 
-void generate_primary_ray(Ray *ray, f32 u, f32 v) {
+f32 vec3_dot(vec3 a, vec3 b);
+
+vec3 vec3_sub(vec3 a, vec3 b) {
+  return (vec3){ a.x - b.x, a.y - b.y, a.z - b.z, };
 }
 
-f32 ray_sphere_intersect(Ray const *ray, Sphere const *sphere) {
-  return F32_NO_HIT;
+vec3 vec3_add(vec3 a, vec3 b) {
+  return (vec3){ a.x + b.x, a.y + b.y, a.z + b.z, };
 }
 
-// 1. Generate primary rays
-// 2. Shoot primary rays into scene to get samples
-//   a. Intersect rays with geometry
-//   b. Generate and trace secondary rays
-//   -  Handle material interaction 
-// 3. Convert wavelength samples to XYZ spectrum format
-// 4. Convert XYZ format to RGB
-// 5. 
+vec3 vec3_mul(vec3 a, vec3 b) {
+  return (vec3){ a.x * b.x, a.y * b.y, a.z * b.z, };
+}
+
+vec3 vec3_smul(f32 s, vec3 a) {
+  return (vec3){ s * a.x, s * a.y, s * a.z, };
+}
+
+f32 vec3_magnitude(vec3 a) {
+  return sqrtf(vec3_dot(a, a));
+}
+
+vec3 vec3_normalized(vec3 a) {
+  f32 m = 1.0f / vec3_magnitude(a);
+  return vec3_mul(a, (vec3){ m, m, m, });
+}
+
+f32 vec3_dot(vec3 a, vec3 b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+vec3 vec3_cross(vec3 a, vec3 b) {
+  return (vec3){
+    a.y * b.z - a.z * b.y,
+    a.z * b.x - a.x * b.z,
+    a.x * b.y - a.y * b.x,
+  };
+}
+
+typedef struct OrthoOptions {
+  vec3 origin;
+  vec3 du;
+  vec3 dv;
+  vec3 dir;
+  f32 width;
+  f32 height;
+  f32 near;
+  f32 far;
+} OrthoOptions;
+
+void generate_primary_ray_ortho(OrthoOptions const *options, Ray *ray, f32 u, f32 v) {
+  vec3 offset = vec3_add(
+    vec3_smul(0.5f * u * options->width, options->du),
+    vec3_smul(0.5f * v * options->height, options->dv)
+  );
+
+  *ray = (Ray){
+    .origin = vec3_add(options->origin, offset),
+    .dir = options->dir,
+    .min_t = options->near,
+    .max_t = options->far,
+  };
+}
+
+f32 ray_sphere_intersect_distance(Ray const *ray, Sphere const *sphere) {
+  vec3 m = vec3_sub(ray->origin, sphere->origin);
+  f32 b = vec3_dot(m, ray->dir);
+  f32 c = vec3_dot(m, m) - sphere->radius * sphere->radius;
+
+  if (c > 0.0f && b > 0.0f) {
+    return F32_NO_HIT;
+  }
+
+  f32 d = b * b - c;
+
+  if (d < 0.0f) {
+    return F32_NO_HIT;
+  }
+
+  f32 ds = sqrtf(d);
+
+  f32 t0 = -b - ds;
+  f32 t1 = -b + ds;
+
+  f32 t_min;
+  f32 t_max;
+
+  if (t0 < t1) {
+    t_min = t0;
+    t_max = t1;
+  } else {
+    t_min = t1;
+    t_max = t0;
+  }
+
+  // t_max is negative so both t are behind us, thus no intersection.
+  if (t_max < 0.0f) {
+    return F32_NO_HIT;
+  }
+
+  if (t_min < 0.0f) {
+    return t_max;
+  }
+
+  return t_min;
+}
 
 inline void spectral_to_xyz(u8 wavelength, f32 *xyz) {
   xyz[0] = cie_xyz_x[wavelength];
@@ -105,23 +194,38 @@ inline void linear_rgb_to_srgb(f32 const *rgb, f32 *srgb) {
   }
 }
 
-#if 0
-struct SampleGrid {
-  u32 width, height;
-  u8 *wavelengths;
-  f32 *powers;
-};
+typedef struct Scene {
+  i32 sphere_count;
+  Sphere *spheres;
+} Scene;
 
-void samplegrid_create(SampleGrid *grid, u32 width, u32 height);
-void samplegrid_destroy(SampleGrid *grid);
-#endif
+void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
+  f32 t = INFINITY;
+  i32 closest_sphere_idx = 0;
+
+  for (i32 i = 0; i < scene->sphere_count; i++) {
+    f32 st = ray_sphere_intersect_distance(ray, &scene->spheres[i]);
+    if (st < t) {
+      t = st;
+      closest_sphere_idx = i;
+    }
+  }
+
+  vec3 p = vec3_add(ray->origin, vec3_mul(ray->dir, (vec3){ t, t, t, }));
+  vec3 n = vec3_normalized(vec3_sub(p, scene->spheres[closest_sphere_idx].origin));
+
+  *hit = (HitRecord){
+    .t = t,
+    .n = n,
+  };
+}
 
 int main(int argc, char *argv[]) {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
     return -1;
   }
 
-  int width = 1024;
+  int width = 640;
   int height = 480;
 
   SDL_Window *window;
@@ -130,13 +234,23 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  SDL_Texture *screen;
-  screen = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+  SDL_Texture *screen = SDL_CreateTexture(
+    renderer,
+    SDL_PIXELFORMAT_XBGR8888,
+    SDL_TEXTUREACCESS_STREAMING,
+    width,
+    height
+  );
 
-  Vector3 cam_pos = { 0.0f, 0.0f, 5.0f, };
-  Vector3 cam_dir = { 0.0f, 0.0f, -1.0f, };
+  Scene scene = {
+    .sphere_count = 4,
+    .spheres = malloc(4 * sizeof(Sphere)),
+  };
 
-  Sphere sphere = { .pos = { 0.0f, 0.0f, 0.0f, }, .radius = 1.0f, };
+  scene.spheres[0] = (Sphere){ .origin = {  2.0f,  0.5f,  0.0f, }, .radius = 1.0f, };
+  scene.spheres[1] = (Sphere){ .origin = { -2.0f,  0.0f,  0.0f, }, .radius = 1.0f, };
+  scene.spheres[2] = (Sphere){ .origin = {  0.0f, -0.5f,  2.0f, }, .radius = 1.0f, };
+  scene.spheres[3] = (Sphere){ .origin = {  0.0f,  0.0f, -2.0f, }, .radius = 1.0f, };
 
   f32 *powers = malloc(width * height * sizeof(f32));
   u8 *wavelengths = malloc(width * height);
@@ -144,8 +258,21 @@ int main(int argc, char *argv[]) {
   // This can function as an accumulator
   f32 *xyz = malloc(width * height * 3 * sizeof(f32));
 
+  u64 last_time_ns = SDL_GetTicksNS();
+
+  f32 time = 0.0f;
+
   u32 done = 0;
   while (!done) {
+    u64 time_ns = SDL_GetTicksNS();
+    u64 dt_ns = time_ns - last_time_ns;
+    f32 dt = ((f32)dt_ns) / 1.0e9f;
+    last_time_ns = time_ns;
+
+    time += dt;
+
+    printf("%f\n", 1.0f / dt);
+
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_EVENT_QUIT) {
@@ -164,16 +291,54 @@ int main(int argc, char *argv[]) {
     memset(wavelengths, 0, width * height);
     memset(xyz, 0, width * height * 3 * sizeof(f32));
 
+    vec3 pos = {
+      5.0f * cosf(0.2f * time * PI),
+      -5.0f,
+      5.0f * sinf(0.2f * time * PI),
+    };
+
+    vec3 poi = { 0.0f, 0.0f, 0.0f, };
+    vec3 dir = vec3_normalized(vec3_sub(poi, pos));
+
+    vec3 up = { 0.0f, 1.0f, 0.0f, };
+    vec3 du = vec3_normalized(vec3_cross(dir, up));
+    vec3 dv = vec3_normalized(vec3_cross(du, dir));
+
+    OrthoOptions options = {
+      .origin = pos,
+      .dir = dir,
+      .du = du,
+      .dv = dv,
+      .width = width / 80.0f,
+      .height = height / 80.0f,
+      .near = 1.0e-3f,
+      .far = 1.0e5f,
+    };
+
     // Trace our rays and save the power and wavelengths
     for (i32 y = 0; y < height; y++) {
       for (i32 x = 0; x < width; x++) {
+        i32 i = y * width + x;
+
+        // In range [-1, 1]
         f32 u = 2.0f * ((f32)x) / width - 1.0f;
         f32 v = 2.0f * ((f32)y) / height - 1.0f;
 
-        i32 i = y * width + x;
+        Ray ray;
+        generate_primary_ray_ortho(&options, &ray, u, v);
 
-        powers[i] = 10.0f;
-        wavelengths[i] = (u8)(((f32)x) / width * 255.5f);
+        HitRecord hit;
+        trace_scene(&ray, &scene, &hit);
+
+        if (hit.t == F32_NO_HIT) {
+          powers[i] = 0.0f;
+          continue;
+        }
+
+        vec3 l = { 0.0f, -1.0f, 0.0f, };
+
+        powers[i] = 12.0f * clampf32(0.0f, 1.0f, vec3_dot(hit.n, l));
+        wavelengths[i] = 100;
       }
     }
 
@@ -209,9 +374,9 @@ int main(int argc, char *argv[]) {
         f32 srgb[3];
         linear_rgb_to_srgb(rgb, srgb);
 
-        pixels[y * pitch + x * 4 + 2] = (u8)(srgb[0] * 255.0f);
+        pixels[y * pitch + x * 4 + 0] = (u8)(srgb[0] * 255.0f);
         pixels[y * pitch + x * 4 + 1] = (u8)(srgb[1] * 255.0f);
-        pixels[y * pitch + x * 4 + 0] = (u8)(srgb[2] * 255.0f);
+        pixels[y * pitch + x * 4 + 2] = (u8)(srgb[2] * 255.0f);
       }
     }
 
