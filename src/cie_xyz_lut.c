@@ -1,8 +1,10 @@
 // This file was generated with 'gen_cie_xyz_lut.py'
-// The coefficients are based on the data of 'CIE_xyz_1931_2deg.csv' from https://cie.co.at/datatable/cie-1931-colour-matching-functions-2-degree-observer
+// The coefficients are based on the data of 'CIE_xyz_1931_2deg.csv' from
+// https://cie.co.at/datatable/cie-1931-colour-matching-functions-2-degree-observer
 // Data corresponds to the XYZ tristimulus value for wavelengths of length.
 // Data starts at 360 nm and increases in steps of 2 nm up to 830 nm.
-// The data has been extended with 0 to make the lut 256 entries long.
+// There are 236 significant values, but the data has been extended with 0.0f
+// to make the lut 256 entries long.
 
 float const cie_xyz_x[256] = {
   0.000137873500f, 0.000173902900f, 0.000219395100f, 0.000276901500f,

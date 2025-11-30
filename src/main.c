@@ -5,6 +5,11 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+typedef struct Spd_8 {
+  u8 wavelengths[8];
+  f32 powers[8];
+} Spd_8;
+
 typedef struct HitRecord {
   f32 t;
   vec3 n;
@@ -82,7 +87,7 @@ int main(int argc, char *argv[]) {
     { .origin = { -2.0f,  0.0f,  0.0f, }, .radius = 1.0f, },
     { .origin = {  0.0f, -0.5f,  2.0f, }, .radius = 1.0f, },
     { .origin = {  0.0f,  0.0f, -2.0f, }, .radius = 1.0f, },
-    { .origin = { 0.0f, -2.0f, 0.0f, }, .radius = 0.1f, },
+    { .origin = {  0.0f, -2.0f,  0.0f, }, .radius = 0.1f, },
   };
 
   Material materials[] = {
@@ -90,7 +95,7 @@ int main(int argc, char *argv[]) {
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
-    { MATERIAL_EMISSIVE, { 20.0f, 140, } },
+    { MATERIAL_EMISSIVE, { 20.0f, 110, } },
   };
 
   Scene scene = {
@@ -154,13 +159,24 @@ int main(int argc, char *argv[]) {
     vec3 du = vec3_normalized(vec3_cross(dir, up));
     vec3 dv = vec3_normalized(vec3_cross(du, dir));
 
-    OrthoOptions options = {
+    CameraOrtho options = {
       .origin = pos,
       .dir = dir,
       .du = du,
       .dv = dv,
       .width = width / 80.0f,
       .height = height / 80.0f,
+      .near = 1.0e-3f,
+      .far = 1.0e5f,
+    };
+
+    CameraPinhole pinhole = {
+      .origin = pos,
+      .dir = dir,
+      .du = du,
+      .dv = dv,
+      .fov_radians = 0.5f * PI,
+      .inv_aspect_ratio = ((f32)height) / width,
       .near = 1.0e-3f,
       .far = 1.0e5f,
     };
@@ -175,7 +191,8 @@ int main(int argc, char *argv[]) {
         f32 v = 2.0f * ((f32)y) / height - 1.0f;
 
         Ray ray;
-        generate_primary_ray_ortho(&options, &ray, u, v);
+        //generate_primary_ray_ortho(&options, &ray, u, v);
+        generate_primary_ray_pinhole(&pinhole, &ray, u, v);
 
         HitRecord hit;
         trace_scene(&ray, &scene, &hit);

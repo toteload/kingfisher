@@ -152,7 +152,7 @@ typedef struct Ray {
 // Camera
 // -
 
-typedef struct OrthoOptions {
+typedef struct CameraOrtho {
   vec3 origin;
   vec3 du;
   vec3 dv;
@@ -161,9 +161,9 @@ typedef struct OrthoOptions {
   f32 height;
   f32 near;
   f32 far;
-} OrthoOptions;
+} CameraOrtho;
 
-inline void generate_primary_ray_ortho(OrthoOptions const *options, Ray *ray, f32 u, f32 v) {
+inline void generate_primary_ray_ortho(CameraOrtho const *options, Ray *ray, f32 u, f32 v) {
   vec3 offset = vec3_add(
     vec3_smul(0.5f * u * options->width, options->du),
     vec3_smul(0.5f * v * options->height, options->dv)
@@ -174,6 +174,35 @@ inline void generate_primary_ray_ortho(OrthoOptions const *options, Ray *ray, f3
     .dir = options->dir,
     .min_t = options->near,
     .max_t = options->far,
+  };
+}
+
+typedef struct CameraPinhole {
+  vec3 origin;
+  vec3 du;
+  vec3 dv;
+  vec3 dir;
+  f32 fov_radians; // Horizontal field of view
+  f32 inv_aspect_ratio; // height / width
+  f32 near;
+  f32 far;
+} CameraPinhole;
+
+inline void generate_primary_ray_pinhole(CameraPinhole const *opt, Ray *ray, f32 u, f32 v) {
+  f32 a = tanf(0.5f * opt->fov_radians);
+  vec3 dir = vec3_normalized(vec3_add(
+    opt->dir,
+    vec3_add(
+      vec3_smul(a * u, opt->du),
+      vec3_smul(opt->inv_aspect_ratio * a * v, opt->dv)
+    )
+  ));
+
+  *ray = (Ray){
+    .origin = opt->origin,
+    .dir = dir,
+    .min_t = opt->near,
+    .max_t = opt->far,
   };
 }
 
