@@ -1,222 +1,57 @@
-#include <stdint.h>
-#include <math.h>
+#include "kingfisher.h"
+
 #include <stdio.h>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
-typedef uint8_t u8;
-typedef uint32_t u32;
-typedef  int32_t i32;
-typedef uint64_t u64;
-typedef float f32;
-typedef double f64;
-
-extern float const cie_xyz_x[256];
-extern float const cie_xyz_y[256];
-extern float const cie_xyz_z[256];
-
-#define PI 3.14159265358979323846f
-
-// Spectral samples are stored as an 8-bit int wavelength and a 32-bit float power.
-// To get the true wavelength in nm multiply by 2 and add 360.
-// A stored wavelength of 140 represents a wavelength of 2 * 140 + 320 = 600 nm.
-
-typedef struct vec3 {
-  f32 x;
-  f32 y;
-  f32 z;
-} vec3;
-
 typedef struct HitRecord {
   f32 t;
   vec3 n;
+  u32 idx;
 } HitRecord;
 
-typedef struct Ray {
-  vec3 origin;
-  f32 min_t;
-  vec3 dir;
-  f32 max_t;
-} Ray;
+enum MaterialKind {
+  MATERIAL_EMISSIVE,
+  MATERIAL_DIFFUSE,
+};
 
-typedef struct Sphere {
-  vec3 origin;
-  f32 radius;
-} Sphere;
-
-#define F32_NO_HIT INFINITY
-
-f32 vec3_dot(vec3 a, vec3 b);
-
-vec3 vec3_sub(vec3 a, vec3 b) {
-  return (vec3){ a.x - b.x, a.y - b.y, a.z - b.z, };
-}
-
-vec3 vec3_add(vec3 a, vec3 b) {
-  return (vec3){ a.x + b.x, a.y + b.y, a.z + b.z, };
-}
-
-vec3 vec3_mul(vec3 a, vec3 b) {
-  return (vec3){ a.x * b.x, a.y * b.y, a.z * b.z, };
-}
-
-vec3 vec3_smul(f32 s, vec3 a) {
-  return (vec3){ s * a.x, s * a.y, s * a.z, };
-}
-
-f32 vec3_magnitude(vec3 a) {
-  return sqrtf(vec3_dot(a, a));
-}
-
-vec3 vec3_normalized(vec3 a) {
-  f32 m = 1.0f / vec3_magnitude(a);
-  return vec3_mul(a, (vec3){ m, m, m, });
-}
-
-f32 vec3_dot(vec3 a, vec3 b) {
-  return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-vec3 vec3_cross(vec3 a, vec3 b) {
-  return (vec3){
-    a.y * b.z - a.z * b.y,
-    a.z * b.x - a.x * b.z,
-    a.x * b.y - a.y * b.x,
+typedef struct Material {
+  u8 kind;
+  union {
+    // At the moment an emissive material only emits a single wavelength
+    struct {
+      f32 power;
+      u8 wavelength;
+    } emissive;
   };
-}
-
-typedef struct OrthoOptions {
-  vec3 origin;
-  vec3 du;
-  vec3 dv;
-  vec3 dir;
-  f32 width;
-  f32 height;
-  f32 near;
-  f32 far;
-} OrthoOptions;
-
-void generate_primary_ray_ortho(OrthoOptions const *options, Ray *ray, f32 u, f32 v) {
-  vec3 offset = vec3_add(
-    vec3_smul(0.5f * u * options->width, options->du),
-    vec3_smul(0.5f * v * options->height, options->dv)
-  );
-
-  *ray = (Ray){
-    .origin = vec3_add(options->origin, offset),
-    .dir = options->dir,
-    .min_t = options->near,
-    .max_t = options->far,
-  };
-}
-
-f32 ray_sphere_intersect_distance(Ray const *ray, Sphere const *sphere) {
-  vec3 m = vec3_sub(ray->origin, sphere->origin);
-  f32 b = vec3_dot(m, ray->dir);
-  f32 c = vec3_dot(m, m) - sphere->radius * sphere->radius;
-
-  if (c > 0.0f && b > 0.0f) {
-    return F32_NO_HIT;
-  }
-
-  f32 d = b * b - c;
-
-  if (d < 0.0f) {
-    return F32_NO_HIT;
-  }
-
-  f32 ds = sqrtf(d);
-
-  f32 t0 = -b - ds;
-  f32 t1 = -b + ds;
-
-  f32 t_min;
-  f32 t_max;
-
-  if (t0 < t1) {
-    t_min = t0;
-    t_max = t1;
-  } else {
-    t_min = t1;
-    t_max = t0;
-  }
-
-  // t_max is negative so both t are behind us, thus no intersection.
-  if (t_max < 0.0f) {
-    return F32_NO_HIT;
-  }
-
-  if (t_min < 0.0f) {
-    return t_max;
-  }
-
-  return t_min;
-}
-
-inline void spectral_to_xyz(u8 wavelength, f32 *xyz) {
-  xyz[0] = cie_xyz_x[wavelength];
-  xyz[1] = cie_xyz_y[wavelength];
-  xyz[2] = cie_xyz_z[wavelength];
-}
-
-// Normalize XYZ based on a reference black point and white point
-inline void normalize_xyz(f32 const *xyz, f32 *nxyz)
-{
-  f32 black[3] = { 0.1901f, 0.2f, 0.2178f, };
-  f32 white[3] = { 76.04f, 80.0f, 87.12f, };
-
-  nxyz[0] = (xyz[0] - black[0]) / (white[0] - black[0]) * (white[0] / white[1]);
-  nxyz[1] = (xyz[1] - black[1]) / (white[1] - black[1]);
-  nxyz[2] = (xyz[2] - black[2]) / (white[2] - black[2]) * (white[2] / white[1]);
-}
-
-#define max(a,b) (((a) < (b)) ? (b) : (a))
-#define min(a,b) (((a) > (b)) ? (b) : (a))
-
-inline f32 clampf32(f32 lo, f32 hi, f32 t) {
-  return min(max(lo, t), hi);
-}
-
-inline void normalized_xyz_to_linear_rgb(f32 const *xyz, f32 *rgb) {
-  rgb[0] = clampf32(0.0f, 1.0f,  3.2406255f * xyz[0] - 1.5372080f * xyz[1] - 0.4986286f * xyz[2]);
-  rgb[1] = clampf32(0.0f, 1.0f, -0.9689307f * xyz[0] + 1.8757561f * xyz[1] + 0.0415175f * xyz[2]);
-  rgb[2] = clampf32(0.0f, 1.0f,  0.0557101f * xyz[0] - 0.2040211f * xyz[1] + 1.0569959f * xyz[2]);
-}
-
-inline void linear_rgb_to_srgb(f32 const *rgb, f32 *srgb) {
-  for (i32 i = 0; i < 3; i++) {
-    if (rgb[i] <= 0.0031308f) {
-      srgb[i] = 12.92f * rgb[i];
-    } else {
-      srgb[i] = 1.055f * powf(rgb[i], 1.0f / 2.4f) - 0.055f;
-    }
-  }
-}
+} Material;
 
 typedef struct Scene {
   i32 sphere_count;
-  Sphere *spheres;
+  Sphere const *spheres;
+  Material const *materials;
 } Scene;
 
 void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
   f32 t = INFINITY;
-  i32 closest_sphere_idx = 0;
+  i32 hit_idx = 0;
 
   for (i32 i = 0; i < scene->sphere_count; i++) {
     f32 st = ray_sphere_intersect_distance(ray, &scene->spheres[i]);
     if (st < t) {
       t = st;
-      closest_sphere_idx = i;
+      hit_idx = i;
     }
   }
 
   vec3 p = vec3_add(ray->origin, vec3_mul(ray->dir, (vec3){ t, t, t, }));
-  vec3 n = vec3_normalized(vec3_sub(p, scene->spheres[closest_sphere_idx].origin));
+  vec3 n = vec3_normalized(vec3_sub(p, scene->spheres[hit_idx].origin));
 
   *hit = (HitRecord){
     .t = t,
     .n = n,
+    .idx = hit_idx,
   };
 }
 
@@ -242,15 +77,27 @@ int main(int argc, char *argv[]) {
     height
   );
 
-  Scene scene = {
-    .sphere_count = 4,
-    .spheres = malloc(4 * sizeof(Sphere)),
+  Sphere spheres[] = {
+    { .origin = {  2.0f,  0.5f,  0.0f, }, .radius = 1.0f, },
+    { .origin = { -2.0f,  0.0f,  0.0f, }, .radius = 1.0f, },
+    { .origin = {  0.0f, -0.5f,  2.0f, }, .radius = 1.0f, },
+    { .origin = {  0.0f,  0.0f, -2.0f, }, .radius = 1.0f, },
+    { .origin = { 0.0f, -2.0f, 0.0f, }, .radius = 0.1f, },
   };
 
-  scene.spheres[0] = (Sphere){ .origin = {  2.0f,  0.5f,  0.0f, }, .radius = 1.0f, };
-  scene.spheres[1] = (Sphere){ .origin = { -2.0f,  0.0f,  0.0f, }, .radius = 1.0f, };
-  scene.spheres[2] = (Sphere){ .origin = {  0.0f, -0.5f,  2.0f, }, .radius = 1.0f, };
-  scene.spheres[3] = (Sphere){ .origin = {  0.0f,  0.0f, -2.0f, }, .radius = 1.0f, };
+  Material materials[] = {
+    { MATERIAL_DIFFUSE, },
+    { MATERIAL_DIFFUSE, },
+    { MATERIAL_DIFFUSE, },
+    { MATERIAL_DIFFUSE, },
+    { MATERIAL_EMISSIVE, { 20.0f, 140, } },
+  };
+
+  Scene scene = {
+    .sphere_count = 5,
+    .spheres = spheres,
+    .materials = materials,
+  };
 
   f32 *powers = malloc(width * height * sizeof(f32));
   u8 *wavelengths = malloc(width * height);
@@ -261,6 +108,9 @@ int main(int argc, char *argv[]) {
   u64 last_time_ns = SDL_GetTicksNS();
 
   f32 time = 0.0f;
+
+  Rng rng;
+  Rng_seed(&rng, 13687844445);
 
   u32 done = 0;
   while (!done) {
@@ -335,10 +185,44 @@ int main(int argc, char *argv[]) {
           continue;
         }
 
-        vec3 l = { 0.0f, -1.0f, 0.0f, };
+        Material mat = scene.materials[hit.idx];
 
-        powers[i] = 12.0f * clampf32(0.0f, 1.0f, vec3_dot(hit.n, l));
-        wavelengths[i] = 100;
+        if (mat.kind == MATERIAL_EMISSIVE) {
+          powers[i] = mat.emissive.power;
+          wavelengths[i] = mat.emissive.wavelength;
+          continue;
+        }
+
+        // The sphere at index 4 is hardcoded emissive for now
+        u32 light_idx = 4;
+
+        Ray light_ray;
+        {
+          vec3 p = vec3_add(ray.origin, vec3_smul(hit.t, ray.dir));
+
+          vec3 sample = sample_unit_sphere(Rng_f32(&rng), Rng_f32(&rng));
+
+          vec3 lp = vec3_add(scene.spheres[light_idx].origin, vec3_smul(scene.spheres[light_idx].radius, sample));
+
+          vec3 origin = vec3_add(p, vec3_smul(0.001f, hit.n)); 
+
+          light_ray = (Ray){
+            .origin = origin,
+            .dir = vec3_normalized(vec3_sub(lp, origin)),
+            .min_t = 1.0e-3f,
+            .max_t = 1.0e5f,
+          };
+        }
+
+        HitRecord light_hit;
+        trace_scene(&light_ray, &scene, &light_hit);
+
+        if (light_hit.idx != light_idx) {
+          continue;
+        }
+
+        powers[i] = scene.materials[light_idx].emissive.power * clamp(0.0f, 1.0f, vec3_dot(hit.n, light_ray.dir));
+        wavelengths[i] = scene.materials[light_idx].emissive.wavelength;
       }
     }
 

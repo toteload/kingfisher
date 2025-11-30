@@ -1,4 +1,5 @@
 SDL3.dll
+.vs/
 *.obj
 *.exe
 *.ilk
