@@ -1,0 +1,4 @@
+# Loose list of things to add
+- SPD (spectral power distribution) sampling
+- BVH building with Embree
+- HDR output

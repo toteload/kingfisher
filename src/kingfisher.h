@@ -80,6 +80,23 @@ inline vec3 vec3_cross(vec3 a, vec3 b) {
   };
 }
 
+inline vec3 pitch_yaw_to_vec3(f32 pitch, f32 yaw) {
+  f32 cos_pitch = cosf(pitch);
+
+  return (vec3){
+    cosf(yaw) * cos_pitch,
+    sinf(pitch),
+    sinf(yaw) * cos_pitch,
+  };
+}
+
+// Assumes that up is (0, 1, 0)
+// `n` must be normalized.
+inline void vec3_to_pitch_yaw(vec3 n, f32 *pitch, f32 *yaw) {
+  *pitch = asinf(n.y);
+  *yaw = atan2f(n.z, n.x);
+}
+
 // Random
 // -
 
@@ -216,6 +233,12 @@ typedef struct Sphere {
   f32 radius;
 } Sphere;
 
+typedef struct Triangle {
+  vec3 v0;
+  vec3 v1;
+  vec3 v2;
+} Triangle;
+
 inline f32 ray_sphere_intersect_distance(Ray const *ray, Sphere const *sphere) {
   vec3 m = vec3_sub(ray->origin, sphere->origin);
   f32 b = vec3_dot(m, ray->dir);
@@ -257,6 +280,51 @@ inline f32 ray_sphere_intersect_distance(Ray const *ray, Sphere const *sphere) {
   }
 
   return t_min;
+}
+
+// Möller-Trumbore ray-triangle intersection algorithm
+inline f32 ray_triangle_intersect_distance(Ray const *ray, Triangle const *tri) {
+  const f32 EPSILON = 0.0000001f;
+
+  // Compute edges from v0
+  vec3 edge1 = vec3_sub(tri->v1, tri->v0);
+  vec3 edge2 = vec3_sub(tri->v2, tri->v0);
+
+  // Begin calculating determinant - also used to calculate u parameter
+  vec3 h = vec3_cross(ray->dir, edge2);
+  f32 a = vec3_dot(edge1, h);
+
+  // Ray is parallel to triangle
+  if (fabs(a) < EPSILON) {
+    return F32_NO_HIT;
+  }
+
+  f32 f = 1.0f / a;
+  vec3 s = vec3_sub(ray->origin, tri->v0);
+  f32 u = f * vec3_dot(s, h);
+
+  // Intersection is outside triangle
+  if (u < 0.0f || u > 1.0f) {
+    return F32_NO_HIT;
+  }
+
+  vec3 q = vec3_cross(s, edge1);
+  f32 v = f * vec3_dot(ray->dir, q);
+
+  // Intersection is outside triangle
+  if (v < 0.0f || u + v > 1.0f) {
+    return F32_NO_HIT;
+  }
+
+  // Compute t to find intersection point on ray
+  f32 t = f * vec3_dot(edge2, q);
+
+  // Check if intersection is within ray bounds
+  if (t >= ray->min_t && t <= ray->max_t) {
+    return t;
+  }
+
+  return F32_NO_HIT;
 }
 
 // Color space

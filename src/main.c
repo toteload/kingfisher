@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+// Spectral power distribution
 typedef struct Spd_8 {
   u8 wavelengths[8];
   f32 powers[8];
@@ -35,29 +36,141 @@ typedef struct Material {
 typedef struct Scene {
   i32 sphere_count;
   Sphere const *spheres;
+
+  i32 triangle_count;
+  Triangle const *triangles;
+
   Material const *materials;
 } Scene;
+
+typedef struct CameraState {
+  vec3 position;
+  f32 pitch;      // Radians, always in [-pi/2, pi/2]
+  f32 yaw;        // Radians, always in [-pi, pi]
+  f32 move_speed;
+  f32 rot_speed;
+} CameraState;
 
 void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
   f32 t = INFINITY;
   i32 hit_idx = 0;
+  i32 hit_type = 0; // 0 = sphere, 1 = triangle
 
   for (i32 i = 0; i < scene->sphere_count; i++) {
     f32 st = ray_sphere_intersect_distance(ray, &scene->spheres[i]);
     if (st < t) {
       t = st;
       hit_idx = i;
+      hit_type = 0;
     }
   }
 
-  vec3 p = vec3_add(ray->origin, vec3_mul(ray->dir, (vec3){ t, t, t, }));
-  vec3 n = vec3_normalized(vec3_sub(p, scene->spheres[hit_idx].origin));
+  for (i32 i = 0; i < scene->triangle_count; i++) {
+    f32 tt = ray_triangle_intersect_distance(ray, &scene->triangles[i]);
+    if (tt < t) {
+      t = tt;
+      hit_idx = i + scene->sphere_count;
+      hit_type = 1;
+    }
+  }
+
+  vec3 n;
+  if (hit_type == 0 && t != INFINITY) {
+    // Sphere normal
+    vec3 p = vec3_add(ray->origin, vec3_mul(ray->dir, (vec3){ t, t, t, }));
+    n = vec3_normalized(vec3_sub(p, scene->spheres[hit_idx].origin));
+  } else if (hit_type == 1) {
+    // Triangle normal
+    i32 tri_idx = hit_idx - scene->sphere_count;
+    vec3 edge1 = vec3_sub(scene->triangles[tri_idx].v1, scene->triangles[tri_idx].v0);
+    vec3 edge2 = vec3_sub(scene->triangles[tri_idx].v2, scene->triangles[tri_idx].v0);
+    n = vec3_normalized(vec3_cross(edge1, edge2));
+  } else {
+    n = (vec3){ 0.0f, 0.0f, 0.0f };
+  }
 
   *hit = (HitRecord){
     .t = t,
     .n = n,
     .idx = hit_idx,
   };
+}
+
+void camera_state_to_vectors(CameraState const *state, vec3 *dir, vec3 *du, vec3 *dv) {
+  // Calculate forward direction from pitch and yaw
+  // Pitch rotates around the right axis (up/down)
+  // Yaw rotates around the world up axis (left/right)
+
+  vec3 forward = pitch_yaw_to_vec3(state->pitch, state->yaw);
+
+  *dir = vec3_normalized(forward);
+
+  // Calculate right vector (perpendicular to forward and world up)
+  vec3 world_up = { 0.0f, 1.0f, 0.0f };
+  *du = vec3_normalized(vec3_cross(*dir, world_up));
+
+  // Calculate up vector (perpendicular to right and forward)
+  *dv = vec3_normalized(vec3_cross(*du, *dir));
+}
+
+void update_camera_from_input(CameraState *camera, const bool *keys, f32 dt) {
+  // Get current camera direction vectors
+  vec3 dir, du, dv;
+  camera_state_to_vectors(camera, &dir, &du, &dv);
+
+  // Movement in local space
+  vec3 movement = { 0.0f, 0.0f, 0.0f };
+
+  if (keys[SDL_SCANCODE_W]) {
+    movement = vec3_add(movement, dir);  // Forward
+  }
+  if (keys[SDL_SCANCODE_S]) {
+    movement = vec3_sub(movement, dir);  // Backward
+  }
+  if (keys[SDL_SCANCODE_A]) {
+    movement = vec3_sub(movement, du);   // Strafe left
+  }
+  if (keys[SDL_SCANCODE_D]) {
+    movement = vec3_add(movement, du);   // Strafe right
+  }
+
+  // Vertical movement in world space
+  if (keys[SDL_SCANCODE_E]) {
+    movement.y += 1.0f;  // Move up
+  }
+  if (keys[SDL_SCANCODE_Q]) {
+    movement.y -= 1.0f;  // Move down
+  }
+
+  // Apply movement
+  if (vec3_dot(movement, movement) > 0.0f) {
+    vec3 velocity = vec3_smul(camera->move_speed * dt, vec3_normalized(movement));
+    camera->position = vec3_add(camera->position, velocity);
+  }
+
+  // Rotation
+  if (keys[SDL_SCANCODE_UP]) {
+    camera->pitch += camera->rot_speed * dt;  // Pitch up
+  }
+  if (keys[SDL_SCANCODE_DOWN]) {
+    camera->pitch -= camera->rot_speed * dt;  // Pitch down
+  }
+  if (keys[SDL_SCANCODE_LEFT]) {
+    camera->yaw -= camera->rot_speed * dt;    // Yaw left
+  }
+  if (keys[SDL_SCANCODE_RIGHT]) {
+    camera->yaw += camera->rot_speed * dt;    // Yaw right
+  }
+
+  while (camera->yaw < 0.0f) {
+    camera->yaw += 2.0f * PI;
+  }
+
+  while (camera->yaw >= 2.0f * PI) {
+    camera->yaw -= 2.0f * PI;
+  }
+
+  camera->pitch = clamp(-0.5f * PI, 0.5f * PI, camera->pitch);
 }
 
 int main(int argc, char *argv[]) {
@@ -90,17 +203,45 @@ int main(int argc, char *argv[]) {
     { .origin = {  0.0f, -2.0f,  0.0f, }, .radius = 0.1f, },
   };
 
+  Triangle triangles[] = {
+    {
+      .v0 = {  0.0f,  0.0f, 0.0f },
+      .v1 = { -1.0f,  0.0f, 0.0f },
+      .v2 = { -1.0f, -1.0f, 0.5f }
+    },
+    {
+      .v0 = { 0.0f,  0.0f, 0.0f },
+      .v1 = { 0.0f,  0.0f, 1.0f },
+      .v2 = { 0.5f, -1.0f, 1.0f }
+    },
+    {
+      .v0 = {  0.0f,  0.0f, 0.0f },
+      .v1 = {  1.0f,  0.0f, 0.0f },
+      .v2 = {  1.0f, -1.0f, 0.5f }
+    },
+    {
+      .v0 = { 0.0f,  0.0f,  0.0f },
+      .v1 = { 0.0f,  0.0f, -1.0f },
+      .v2 = { 0.5f, -1.0f, -1.0f }
+    },
+  };
+
   Material materials[] = {
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
     { MATERIAL_EMISSIVE, { 20.0f, 110, } },
+    { MATERIAL_DIFFUSE, },
+    { MATERIAL_DIFFUSE, },
+    { MATERIAL_DIFFUSE, },
   };
 
   Scene scene = {
     .sphere_count = 5,
     .spheres = spheres,
+    .triangle_count = 4,
+    .triangles = triangles,
     .materials = materials,
   };
 
@@ -117,6 +258,22 @@ int main(int argc, char *argv[]) {
   Rng rng;
   Rng_seed(&rng, 13687844445);
 
+  CameraState camera;
+  {
+    vec3 position = { 5.0f, -5.0f, 5.0f };
+    f32 pitch, yaw;
+    vec3 dir = vec3_normalized(vec3_sub((vec3){0.0f, 0.0f, 0.0f}, position));
+    vec3_to_pitch_yaw(dir, &pitch, &yaw);
+
+    camera = (CameraState){
+      .position = position,
+      .pitch = pitch,
+      .yaw = yaw,
+      .move_speed = 3.0f,
+      .rot_speed = 2.0f,
+    };
+  }
+
   u32 done = 0;
   while (!done) {
     u64 time_ns = SDL_GetTicksNS();
@@ -126,7 +283,8 @@ int main(int argc, char *argv[]) {
 
     time += dt;
 
-    printf("%f\n", 1.0f / dt);
+    //printf("%f\n", 1.0f / dt);
+    printf("pitch: %f, yaw: %f\n", camera.pitch / PI, camera.yaw / PI);
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -146,18 +304,14 @@ int main(int argc, char *argv[]) {
     memset(wavelengths, 0, width * height);
     memset(xyz, 0, width * height * 3 * sizeof(f32));
 
-    vec3 pos = {
-      5.0f * cosf(0.2f * time * PI),
-      -5.0f,
-      5.0f * sinf(0.2f * time * PI),
-    };
+    // Update camera from keyboard input
+    const bool *keys = SDL_GetKeyboardState(NULL);
+    update_camera_from_input(&camera, keys, dt);
 
-    vec3 poi = { 0.0f, 0.0f, 0.0f, };
-    vec3 dir = vec3_normalized(vec3_sub(poi, pos));
-
-    vec3 up = { 0.0f, 1.0f, 0.0f, };
-    vec3 du = vec3_normalized(vec3_cross(dir, up));
-    vec3 dv = vec3_normalized(vec3_cross(du, dir));
+    // Calculate camera vectors from camera state
+    vec3 dir, du, dv;
+    camera_state_to_vectors(&camera, &dir, &du, &dv);
+    vec3 pos = camera.position;
 
     CameraOrtho options = {
       .origin = pos,
