@@ -113,6 +113,23 @@ void camera_state_to_vectors(CameraState const *state, vec3 *dir, vec3 *du, vec3
   *dv = vec3_normalized(vec3_cross(*du, *dir));
 }
 
+bool camera_has_moved(CameraState const *current, CameraState const *previous) {
+  const f32 epsilon = 1.0e-6f;
+
+  if (fabsf(current->position.x - previous->position.x) > epsilon) return true;
+  if (fabsf(current->position.y - previous->position.y) > epsilon) return true;
+  if (fabsf(current->position.z - previous->position.z) > epsilon) return true;
+  if (fabsf(current->pitch - previous->pitch) > epsilon) return true;
+  if (fabsf(current->yaw - previous->yaw) > epsilon) return true;
+
+  return false;
+}
+
+void reset_accumulation(f32 *xyz, u32 *sample_count, i32 width, i32 height) {
+  memset(xyz, 0, width * height * 3 * sizeof(f32));
+  *sample_count = 0;
+}
+
 void update_camera_from_input(CameraState *camera, const bool *keys, f32 dt) {
   // Get current camera direction vectors
   vec3 dir, du, dv;
@@ -248,8 +265,12 @@ int main(int argc, char *argv[]) {
   f32 *powers = malloc(width * height * sizeof(f32));
   u8 *wavelengths = malloc(width * height);
 
-  // This can function as an accumulator
+  // Accumulation buffer for XYZ values
   f32 *xyz = malloc(width * height * 3 * sizeof(f32));
+  memset(xyz, 0, width * height * 3 * sizeof(f32));
+
+  // Sample accumulation counter
+  u32 sample_count = 0;
 
   u64 last_time_ns = SDL_GetTicksNS();
 
@@ -274,6 +295,9 @@ int main(int argc, char *argv[]) {
     };
   }
 
+  // Previous camera state for tracking movement
+  CameraState camera_prev = camera;
+
   u32 done = 0;
   while (!done) {
     u64 time_ns = SDL_GetTicksNS();
@@ -284,7 +308,7 @@ int main(int argc, char *argv[]) {
     time += dt;
 
     //printf("%f\n", 1.0f / dt);
-    printf("pitch: %f, yaw: %f\n", camera.pitch / PI, camera.yaw / PI);
+    printf("pitch: %f, yaw: %f, samples: %u\n", camera.pitch / PI, camera.yaw / PI, sample_count);
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -300,13 +324,18 @@ int main(int argc, char *argv[]) {
     SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0x00);
     SDL_RenderClear(renderer);
 
-    memset(powers, 0, width * height * sizeof(f32));
-    memset(wavelengths, 0, width * height);
-    memset(xyz, 0, width * height * 3 * sizeof(f32));
-
     // Update camera from keyboard input
     const bool *keys = SDL_GetKeyboardState(NULL);
     update_camera_from_input(&camera, keys, dt);
+
+    // Check if camera has moved and reset accumulation if needed
+    if (camera_has_moved(&camera, &camera_prev)) {
+      reset_accumulation(xyz, &sample_count, width, height);
+      camera_prev = camera;
+    }
+
+    memset(powers, 0, width * height * sizeof(f32));
+    memset(wavelengths, 0, width * height);
 
     // Calculate camera vectors from camera state
     vec3 dir, du, dv;
@@ -397,7 +426,7 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // Convert the wavelength+power samples to XYZ and store.
+    // Convert the wavelength+power samples to XYZ and accumulate.
     for (i32 y = 0; y < height; y++) {
       for (i32 x = 0; x < width; x++) {
         i32 i = y * width + x;
@@ -411,6 +440,9 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    // Increment sample count after accumulating this frame
+    sample_count++;
+
     void *buffer;
     int pitch;
     SDL_LockTexture(screen, NULL, &buffer, &pitch);
@@ -420,8 +452,21 @@ int main(int argc, char *argv[]) {
       for (i32 x = 0; x < width; x++) {
         i32 i = y * width + x;
 
+        // Average accumulated XYZ values
+        f32 avg_xyz[3];
+        if (sample_count > 0) {
+          f32 inv_count = 1.0f / (f32)sample_count;
+          avg_xyz[0] = xyz[i * 3 + 0] * inv_count;
+          avg_xyz[1] = xyz[i * 3 + 1] * inv_count;
+          avg_xyz[2] = xyz[i * 3 + 2] * inv_count;
+        } else {
+          avg_xyz[0] = 0.0f;
+          avg_xyz[1] = 0.0f;
+          avg_xyz[2] = 0.0f;
+        }
+
         f32 nxyz[3];
-        normalize_xyz(xyz + i * 3, nxyz);
+        normalize_xyz(avg_xyz, nxyz);
 
         f32 rgb[3];
         normalized_xyz_to_linear_rgb(nxyz, rgb);
