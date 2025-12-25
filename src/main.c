@@ -118,11 +118,15 @@ void camera_state_to_vectors(CameraState const *state, vec3 *dir, vec3 *du, vec3
 
   vec3 forward = pitch_yaw_to_vec3(state->pitch, state->yaw);
 
+  // This should be normalized already, but normalizing it again doesn't hurt I guess?
   *dir = vec3_normalized(forward);
 
-  // Calculate right vector (perpendicular to forward and world up)
+  // Calculate right vector (perpendicular to xz_forward and world up).
+  // We cannot use forward, because it is possible to look straight up or down
+  // and then forward and world_up are in the same (or exactly opposite) direction.
+  vec3 xz_forward = { cosf(state->yaw), 0, sinf(state->yaw), };
   vec3 world_up = { 0.0f, 1.0f, 0.0f };
-  *du = vec3_normalized(vec3_cross(*dir, world_up));
+  *du = vec3_normalized(vec3_cross(xz_forward, world_up));
 
   // Calculate up vector (perpendicular to right and forward)
   *dv = vec3_normalized(vec3_cross(*du, *dir));
