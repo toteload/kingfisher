@@ -1,4 +1,5 @@
 #include "kingfisher.h"
+#include "camera.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -45,14 +46,6 @@ typedef struct Scene {
 
   Material const *materials;
 } Scene;
-
-typedef struct CameraState {
-  vec3 position;
-  f32 pitch;      // Radians, always in [-pi/2, pi/2]
-  f32 yaw;        // Radians, always in [-pi, pi]
-  f32 move_speed;
-  f32 rot_speed;
-} CameraState;
 
 void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
   f32 t = F32_NO_HIT;
@@ -111,41 +104,10 @@ void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
   };
 }
 
-void camera_state_to_vectors(CameraState const *state, vec3 *dir, vec3 *du, vec3 *dv) {
-  // Calculate forward direction from pitch and yaw
-  // Pitch rotates around the right axis (up/down)
-  // Yaw rotates around the world up axis (left/right)
-
-  vec3 forward = pitch_yaw_to_vec3(state->pitch, state->yaw);
-
-  // This should be normalized already, but normalizing it again doesn't hurt I guess?
-  *dir = vec3_normalized(forward);
-
-  // Calculate right vector (perpendicular to xz_forward and world up).
-  // We cannot use forward, because it is possible to look straight up or down
-  // and then forward and world_up are in the same (or exactly opposite) direction.
-  vec3 xz_forward = { cosf(state->yaw), 0, sinf(state->yaw), };
-  vec3 world_up = { 0.0f, 1.0f, 0.0f };
-  *du = vec3_normalized(vec3_cross(xz_forward, world_up));
-
-  // Calculate up vector (perpendicular to right and forward)
-  *dv = vec3_normalized(vec3_cross(*du, *dir));
-}
-
-bool camera_has_moved(CameraState const *current, CameraState const *previous) {
-  if (current->position.x != previous->position.x) return true;
-  if (current->position.y != previous->position.y) return true;
-  if (current->position.z != previous->position.z) return true;
-  if (current->pitch != previous->pitch) return true;
-  if (current->yaw != previous->yaw) return true;
-
-  return false;
-}
-
-void update_camera_from_input(CameraState *camera, const bool *keys, f32 dt) {
+void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) {
   // Get current camera direction vectors
   vec3 dir, du, dv;
-  camera_state_to_vectors(camera, &dir, &du, &dv);
+  camera_controls_to_vectors(camera, &dir, &du, &dv);
 
   // Movement in local space
   vec3 movement = { 0.0f, 0.0f, 0.0f };
@@ -297,14 +259,14 @@ int main(int argc, char *argv[]) {
   Rng rng;
   Rng_seed(&rng, 13687844445);
 
-  CameraState camera;
+  CameraControls camera;
   {
     vec3 position = { 5.0f, 5.0f, 5.0f };
     f32 pitch, yaw;
     vec3 dir = vec3_normalized(vec3_sub((vec3){0.0f, 0.0f, 0.0f}, position));
     vec3_to_pitch_yaw(dir, &pitch, &yaw);
 
-    camera = (CameraState){
+    camera = (CameraControls){
       .position = position,
       .pitch = pitch,
       .yaw = yaw,
@@ -314,7 +276,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Previous camera state for tracking movement
-  CameraState camera_prev = camera;
+  CameraControls camera_prev = camera;
 
   u32 done = 0;
   while (!done) {
@@ -355,31 +317,8 @@ int main(int argc, char *argv[]) {
     memset(wavelengths, 0, width * height);
 
     // Calculate camera vectors from camera state
-    vec3 dir, du, dv;
-    camera_state_to_vectors(&camera, &dir, &du, &dv);
-    vec3 pos = camera.position;
-
-    CameraOrtho options = {
-      .origin = pos,
-      .dir = dir,
-      .du = du,
-      .dv = dv,
-      .width = width / 80.0f,
-      .height = height / 80.0f,
-      .near = 1.0e-3f,
-      .far = 1.0e5f,
-    };
-
-    CameraPinhole pinhole = {
-      .origin = pos,
-      .dir = dir,
-      .du = du,
-      .dv = dv,
-      .fov_radians = 0.5f * PI,
-      .inv_aspect_ratio = ((f32)height) / width,
-      .near = 1.0e-3f,
-      .far = 1.0e5f,
-    };
+    CameraBasis basis;
+    camera_controls_to_basis(&camera, &basis);
 
     // Trace our rays and save the power and wavelengths
     for (i32 y = 0; y < height; y++) {
@@ -391,8 +330,25 @@ int main(int argc, char *argv[]) {
         f32 v = 2.0f * ((f32)y) / height - 1.0f;
 
         Ray ray;
-        //generate_primary_ray_ortho(&options, &ray, u, v);
-        generate_primary_ray_pinhole(&pinhole, &ray, u, v);
+        //{
+        //  PerspectiveOrtho ortho = {
+        //    .width = width / 80.0f,
+        //    .height = height / 80.0f,
+        //    .near = 1.0e-3f,
+        //    .far = 1.0e5f,
+        //  };
+        //  generate_primary_ray_ortho(&basis, &ortho, &ray, u, v);
+        //}
+        {
+          PerspectivePinhole pinhole = {
+            .fov_radians = 0.5f * PI,
+            .inv_aspect_ratio = ((f32)height) / width,
+            .near = 1.0e-3f,
+            .far = 1.0e5f,
+          };
+
+          generate_primary_ray_pinhole(&basis, &pinhole, &ray, u, v);
+        }
 
         HitRecord hit;
         trace_scene(&ray, &scene, &hit);
