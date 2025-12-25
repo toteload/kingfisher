@@ -1,6 +1,7 @@
 #include "kingfisher.h"
 
 #include <stdio.h>
+#include <assert.h>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -10,6 +11,8 @@ typedef struct Spd_8 {
   u8 wavelengths[8];
   f32 powers[8];
 } Spd_8;
+
+#define IDX_NO_HIT UINT32_MAX
 
 typedef struct HitRecord {
   f32 t;
@@ -52,8 +55,8 @@ typedef struct CameraState {
 } CameraState;
 
 void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
-  f32 t = INFINITY;
-  i32 hit_idx = 0;
+  f32 t = F32_NO_HIT;
+  i32 hit_idx = IDX_NO_HIT;
   i32 hit_type = 0; // 0 = sphere, 1 = triangle
 
   for (i32 i = 0; i < scene->sphere_count; i++) {
@@ -74,8 +77,16 @@ void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
     }
   }
 
+  if (hit_idx == IDX_NO_HIT) {
+    *hit = (HitRecord){
+      .t = F32_NO_HIT,
+      .idx = IDX_NO_HIT,
+    };
+    return;
+  }
+
   vec3 n;
-  if (hit_type == 0 && t != INFINITY) {
+  if (hit_type == 0) {
     // Sphere normal
     vec3 p = vec3_add(ray->origin, vec3_mul(ray->dir, (vec3){ t, t, t, }));
     n = vec3_normalized(vec3_sub(p, scene->spheres[hit_idx].origin));
@@ -85,8 +96,12 @@ void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
     vec3 edge1 = vec3_sub(scene->triangles[tri_idx].v1, scene->triangles[tri_idx].v0);
     vec3 edge2 = vec3_sub(scene->triangles[tri_idx].v2, scene->triangles[tri_idx].v0);
     n = vec3_normalized(vec3_cross(edge1, edge2));
+
+    if (vec3_dot(n, ray->dir) > 0.0f) {
+      n = vec3_smul(-1.0f, n);
+    }
   } else {
-    n = (vec3){ 0.0f, 0.0f, 0.0f };
+    assert(!"Unknown type of object hit");
   }
 
   *hit = (HitRecord){
@@ -114,20 +129,13 @@ void camera_state_to_vectors(CameraState const *state, vec3 *dir, vec3 *du, vec3
 }
 
 bool camera_has_moved(CameraState const *current, CameraState const *previous) {
-  const f32 epsilon = 1.0e-6f;
-
-  if (fabsf(current->position.x - previous->position.x) > epsilon) return true;
-  if (fabsf(current->position.y - previous->position.y) > epsilon) return true;
-  if (fabsf(current->position.z - previous->position.z) > epsilon) return true;
-  if (fabsf(current->pitch - previous->pitch) > epsilon) return true;
-  if (fabsf(current->yaw - previous->yaw) > epsilon) return true;
+  if (current->position.x != previous->position.x) return true;
+  if (current->position.y != previous->position.y) return true;
+  if (current->position.z != previous->position.z) return true;
+  if (current->pitch != previous->pitch) return true;
+  if (current->yaw != previous->yaw) return true;
 
   return false;
-}
-
-void reset_accumulation(f32 *xyz, u32 *sample_count, i32 width, i32 height) {
-  memset(xyz, 0, width * height * 3 * sizeof(f32));
-  *sample_count = 0;
 }
 
 void update_camera_from_input(CameraState *camera, const bool *keys, f32 dt) {
@@ -215,9 +223,9 @@ int main(int argc, char *argv[]) {
   Sphere spheres[] = {
     { .origin = {  2.0f,  0.5f,  0.0f, }, .radius = 1.0f, },
     { .origin = { -2.0f,  0.0f,  0.0f, }, .radius = 1.0f, },
-    { .origin = {  0.0f, -0.5f,  2.0f, }, .radius = 1.0f, },
+    { .origin = {  0.0f,  0.5f,  2.0f, }, .radius = 1.0f, },
     { .origin = {  0.0f,  0.0f, -2.0f, }, .radius = 1.0f, },
-    { .origin = {  0.0f, -2.0f,  0.0f, }, .radius = 0.1f, },
+    { .origin = {  0.0f,  2.0f,  0.0f, }, .radius = 0.1f, },
   };
 
   Triangle triangles[] = {
@@ -241,6 +249,11 @@ int main(int argc, char *argv[]) {
       .v1 = { 0.0f,  0.0f, -1.0f },
       .v2 = { 0.5f, -1.0f, -1.0f }
     },
+    {
+      .v0 = {  1.0f,  0.0f,  0.0f },
+      .v1 = { -1.0f,  0.0f,  1.0f },
+      .v2 = { -1.0f,  0.0f, -1.0f }
+    },
   };
 
   Material materials[] = {
@@ -248,7 +261,8 @@ int main(int argc, char *argv[]) {
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
-    { MATERIAL_EMISSIVE, { 20.0f, 110, } },
+    { MATERIAL_EMISSIVE, { 40.0f, 110, } },
+    { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
@@ -257,7 +271,7 @@ int main(int argc, char *argv[]) {
   Scene scene = {
     .sphere_count = 5,
     .spheres = spheres,
-    .triangle_count = 4,
+    .triangle_count = 5,
     .triangles = triangles,
     .materials = materials,
   };
@@ -265,9 +279,9 @@ int main(int argc, char *argv[]) {
   f32 *powers = malloc(width * height * sizeof(f32));
   u8 *wavelengths = malloc(width * height);
 
-  // Accumulation buffer for XYZ values
-  f32 *xyz = malloc(width * height * 3 * sizeof(f32));
-  memset(xyz, 0, width * height * 3 * sizeof(f32));
+  // Accumulation buffer
+  vec3 *xyz = malloc(width * height * sizeof(vec3));
+  memset(xyz, 0, width * height * sizeof(vec3));
 
   // Sample accumulation counter
   u32 sample_count = 0;
@@ -281,7 +295,7 @@ int main(int argc, char *argv[]) {
 
   CameraState camera;
   {
-    vec3 position = { 5.0f, -5.0f, 5.0f };
+    vec3 position = { 5.0f, 5.0f, 5.0f };
     f32 pitch, yaw;
     vec3 dir = vec3_normalized(vec3_sub((vec3){0.0f, 0.0f, 0.0f}, position));
     vec3_to_pitch_yaw(dir, &pitch, &yaw);
@@ -307,9 +321,6 @@ int main(int argc, char *argv[]) {
 
     time += dt;
 
-    //printf("%f\n", 1.0f / dt);
-    printf("pitch: %f, yaw: %f, samples: %u\n", camera.pitch / PI, camera.yaw / PI, sample_count);
-
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_EVENT_QUIT) {
@@ -330,9 +341,11 @@ int main(int argc, char *argv[]) {
 
     // Check if camera has moved and reset accumulation if needed
     if (camera_has_moved(&camera, &camera_prev)) {
-      reset_accumulation(xyz, &sample_count, width, height);
-      camera_prev = camera;
+      memset(xyz, 0, width * height * sizeof(vec3));
+      sample_count = 0;
     }
+
+    camera_prev = camera;
 
     memset(powers, 0, width * height * sizeof(f32));
     memset(wavelengths, 0, width * height);
@@ -415,6 +428,11 @@ int main(int argc, char *argv[]) {
         }
 
         HitRecord light_hit;
+
+        if (vec3_dot(hit.n, light_ray.dir) < 0.0f) {
+          continue;
+        }
+
         trace_scene(&light_ray, &scene, &light_hit);
 
         if (light_hit.idx != light_idx) {
@@ -431,12 +449,8 @@ int main(int argc, char *argv[]) {
       for (i32 x = 0; x < width; x++) {
         i32 i = y * width + x;
 
-        f32 s[3];
-        spectral_to_xyz(wavelengths[i], s);
-
-        for (i32 j = 0; j < 3; j++) {
-          xyz[i * 3 + j] += powers[i] * s[j];
-        }
+        vec3 s = spectral_to_xyz(wavelengths[i]);
+        xyz[i] = vec3_add(xyz[i], vec3_smul(powers[i], s));
       }
     }
 
@@ -453,30 +467,16 @@ int main(int argc, char *argv[]) {
         i32 i = y * width + x;
 
         // Average accumulated XYZ values
-        f32 avg_xyz[3];
-        if (sample_count > 0) {
-          f32 inv_count = 1.0f / (f32)sample_count;
-          avg_xyz[0] = xyz[i * 3 + 0] * inv_count;
-          avg_xyz[1] = xyz[i * 3 + 1] * inv_count;
-          avg_xyz[2] = xyz[i * 3 + 2] * inv_count;
-        } else {
-          avg_xyz[0] = 0.0f;
-          avg_xyz[1] = 0.0f;
-          avg_xyz[2] = 0.0f;
-        }
+        f32 inv_count = 1.0f / (f32)sample_count;
+        vec3 avg_xyz = vec3_smul(inv_count, xyz[i]);
 
-        f32 nxyz[3];
-        normalize_xyz(avg_xyz, nxyz);
+        vec3 nxyz = normalize_xyz(avg_xyz);
+        vec3 rgb = normalized_xyz_to_linear_rgb(nxyz);
+        vec3 srgb = linear_rgb_to_srgb(rgb);
 
-        f32 rgb[3];
-        normalized_xyz_to_linear_rgb(nxyz, rgb);
-
-        f32 srgb[3];
-        linear_rgb_to_srgb(rgb, srgb);
-
-        pixels[y * pitch + x * 4 + 0] = (u8)(srgb[0] * 255.0f);
-        pixels[y * pitch + x * 4 + 1] = (u8)(srgb[1] * 255.0f);
-        pixels[y * pitch + x * 4 + 2] = (u8)(srgb[2] * 255.0f);
+        pixels[(height - 1 - y) * pitch + x * 4 + 0] = (u8)(srgb.r * 255.0f);
+        pixels[(height - 1 - y) * pitch + x * 4 + 1] = (u8)(srgb.g * 255.0f);
+        pixels[(height - 1 - y) * pitch + x * 4 + 2] = (u8)(srgb.b * 255.0f);
       }
     }
 

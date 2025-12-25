@@ -35,10 +35,10 @@ typedef double f64;
 // Vectors
 // -
 
-typedef struct vec3 {
-  f32 x;
-  f32 y;
-  f32 z;
+typedef union vec3 {
+  struct { f32 x, y, z; };
+  struct { f32 r, g, b; };
+  f32 e[3];
 } vec3;
 
 f32 vec3_dot(vec3 a, vec3 b);
@@ -207,13 +207,12 @@ typedef struct CameraPinhole {
 
 inline void generate_primary_ray_pinhole(CameraPinhole const *opt, Ray *ray, f32 u, f32 v) {
   f32 a = tanf(0.5f * opt->fov_radians);
-  vec3 dir = vec3_normalized(vec3_add(
-    opt->dir,
+  vec3 dir = vec3_normalized(
     vec3_add(
-      vec3_smul(a * u, opt->du),
-      vec3_smul(opt->inv_aspect_ratio * a * v, opt->dv)
-    )
-  ));
+      opt->dir,
+      vec3_add(
+        vec3_smul(a * u, opt->du),
+        vec3_smul(opt->inv_aspect_ratio * a * v, opt->dv))));
 
   *ray = (Ray){
     .origin = opt->origin,
@@ -338,37 +337,41 @@ extern float const cie_xyz_z[256];
 // To get the true wavelength in nm multiply by 2 and add 360.
 // A stored wavelength of 140 represents a wavelength of 2 * 140 + 360 = 640 nm.
 
-inline void spectral_to_xyz(u8 wavelength, f32 *xyz) {
-  xyz[0] = cie_xyz_x[wavelength];
-  xyz[1] = cie_xyz_y[wavelength];
-  xyz[2] = cie_xyz_z[wavelength];
+inline vec3 spectral_to_xyz(u8 wavelength) {
+  return (vec3){ cie_xyz_x[wavelength], cie_xyz_y[wavelength], cie_xyz_z[wavelength], };
 }
 
 // Normalize XYZ based on a reference black point and white point
-inline void normalize_xyz(f32 const *xyz, f32 *nxyz)
+inline vec3 normalize_xyz(vec3 xyz)
 {
   f32 black[3] = { 0.1901f, 0.2f, 0.2178f, };
   f32 white[3] = { 76.04f, 80.0f, 87.12f, };
 
-  nxyz[0] = (xyz[0] - black[0]) / (white[0] - black[0]) * (white[0] / white[1]);
-  nxyz[1] = (xyz[1] - black[1]) / (white[1] - black[1]);
-  nxyz[2] = (xyz[2] - black[2]) / (white[2] - black[2]) * (white[2] / white[1]);
+  return (vec3){
+    (xyz.e[0] - black[0]) / (white[0] - black[0]) * (white[0] / white[1]),
+    (xyz.e[1] - black[1]) / (white[1] - black[1]),
+    (xyz.e[2] - black[2]) / (white[2] - black[2]) * (white[2] / white[1]),
+  };
 }
 
-inline void normalized_xyz_to_linear_rgb(f32 const *xyz, f32 *rgb) {
-  rgb[0] = clamp(0.0f, 1.0f,  3.2406255f * xyz[0] - 1.5372080f * xyz[1] - 0.4986286f * xyz[2]);
-  rgb[1] = clamp(0.0f, 1.0f, -0.9689307f * xyz[0] + 1.8757561f * xyz[1] + 0.0415175f * xyz[2]);
-  rgb[2] = clamp(0.0f, 1.0f,  0.0557101f * xyz[0] - 0.2040211f * xyz[1] + 1.0569959f * xyz[2]);
+inline vec3 normalized_xyz_to_linear_rgb(vec3 nxyz) {
+  return (vec3){
+    clamp(0.0f, 1.0f,  3.2406255f * nxyz.x - 1.5372080f * nxyz.y - 0.4986286f * nxyz.z),
+    clamp(0.0f, 1.0f, -0.9689307f * nxyz.x + 1.8757561f * nxyz.y + 0.0415175f * nxyz.z),
+    clamp(0.0f, 1.0f,  0.0557101f * nxyz.x - 0.2040211f * nxyz.y + 1.0569959f * nxyz.z),
+  };
 }
 
-inline void linear_rgb_to_srgb(f32 const *rgb, f32 *srgb) {
+inline vec3 linear_rgb_to_srgb(vec3 rgb) {
+  vec3 srgb;
   for (i32 i = 0; i < 3; i++) {
-    if (rgb[i] <= 0.0031308f) {
-      srgb[i] = 12.92f * rgb[i];
+    if (rgb.e[i] <= 0.0031308f) {
+      srgb.e[i] = 12.92f * rgb.e[i];
     } else {
-      srgb[i] = 1.055f * powf(rgb[i], 1.0f / 2.4f) - 0.055f;
+      srgb.e[i] = 1.055f * powf(rgb.e[i], 1.0f / 2.4f) - 0.055f;
     }
   }
+  return srgb;
 }
 
 #endif // KINGFISHER_H_INCLUDED
