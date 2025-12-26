@@ -267,10 +267,42 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  fastObjMesh *mesh = fast_obj_read("data/stanford_bunny.obj");
-  if (!mesh) {
-    printf("Failed to load mesh\n");
-    return 1;
+  u32 bunny_triangle_count;
+  Triangle *bunny_triangles;
+  {
+    fastObjMesh *mesh = fast_obj_read("data/stanford_bunny.obj");
+
+    if (!mesh) {
+      printf("Failed to load mesh\n");
+      return 1;
+    }
+
+    assert(mesh->group_count == 1);
+
+    fastObjGroup group = mesh->groups[0];
+
+    Triangle *triangles = malloc(mesh->face_count * sizeof(Triangle));
+    for (u32 i = 0; i < group.face_count; i++) {
+      // Only support triangles
+      assert(mesh->face_vertices[group.face_offset + i] == 3);
+
+      for (u32 j = 0; j < 3; j++) {
+        fastObjIndex idx = mesh->indices[group.index_offset + 3 * i + j];
+
+        assert(idx.p != 0);
+
+        triangles[i].p[j] = (vec3){
+          mesh->positions[3 * idx.p + 0],
+          mesh->positions[3 * idx.p + 1],
+          mesh->positions[3 * idx.p + 2],
+        };
+      }
+    }
+
+    bunny_triangle_count = group.face_count;
+    bunny_triangles = triangles;
+
+    fast_obj_destroy(mesh);
   }
 
   int width = 640;
@@ -289,14 +321,6 @@ int main(int argc, char *argv[]) {
     width,
     height
   );
-
-  Sphere spheres[] = {
-    { .origin = {  2.0f,  0.5f,  0.0f, }, .radius = 1.0f, },
-    { .origin = { -2.0f,  0.0f,  0.0f, }, .radius = 1.0f, },
-    { .origin = {  0.0f,  0.5f,  2.0f, }, .radius = 1.0f, },
-    { .origin = {  0.0f,  0.0f, -2.0f, }, .radius = 1.0f, },
-    { .origin = {  0.0f,  2.0f,  0.0f, }, .radius = 0.1f, },
-  };
 
   Triangle triangles[] = {
     {
@@ -341,8 +365,8 @@ int main(int argc, char *argv[]) {
   };
 
   Scene scene = {
-    .triangle_count = 6,
-    .triangles = triangles,
+    .triangle_count = bunny_triangle_count / 100,
+    .triangles = bunny_triangles,
     .materials = materials,
   };
 
@@ -462,6 +486,10 @@ int main(int argc, char *argv[]) {
           continue;
         }
 
+        powers[i] = 40.0f;
+        wavelengths[i] = 120;
+
+#if 0
         Material mat = scene.materials[hit.idx];
 
         if (mat.kind == MATERIAL_EMISSIVE) {
@@ -511,6 +539,7 @@ int main(int argc, char *argv[]) {
 
         powers[i] = scene.materials[light_idx].emissive.power * clamp(0.0f, 1.0f, vec3_dot(hit.n, light_ray.dir));
         wavelengths[i] = scene.materials[light_idx].emissive.wavelength;
+#endif
       }
     }
 

@@ -47,10 +47,13 @@ typedef struct Ray {
   f32 max_t;
 } Ray;
 
-typedef struct Triangle {
-  vec3 v0;
-  vec3 v1;
-  vec3 v2;
+typedef union Triangle {
+  struct {
+    vec3 v0;
+    vec3 v1;
+    vec3 v2;
+  };
+  vec3 p[3];
 } Triangle;
 
 // Random
