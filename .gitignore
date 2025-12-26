@@ -1,6 +1,7 @@
 SDL3.dll
 .vs/
-ext/
+ext/embree-4.4.0/lib/*
+ext/embree-4.4.0/include/**/*.isph
 *.obj
 *.exe
 *.ilk
