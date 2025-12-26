@@ -1,5 +1,7 @@
-#include "kingfisher.h"
+#include "kingfisher_core.h"
 #include "camera.h"
+#include "colorspace.h"
+#include "bvh.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -12,6 +14,117 @@ typedef struct Spd_8 {
   u8 wavelengths[8];
   f32 powers[8];
 } Spd_8;
+
+// Ray intersection
+// -
+
+#define F32_NO_HIT INFINITY
+
+typedef struct Sphere {
+  vec3 origin;
+  f32 radius;
+} Sphere;
+
+inline f32 ray_sphere_intersect_distance(Ray const *ray, Sphere const *sphere) {
+  vec3 m = vec3_sub(ray->origin, sphere->origin);
+  f32 b = vec3_dot(m, ray->dir);
+  f32 c = vec3_dot(m, m) - sphere->radius * sphere->radius;
+
+  if (c > 0.0f && b > 0.0f) {
+    return F32_NO_HIT;
+  }
+
+  f32 d = b * b - c;
+
+  if (d < 0.0f) {
+    return F32_NO_HIT;
+  }
+
+  f32 ds = sqrtf(d);
+
+  f32 t0 = -b - ds;
+  f32 t1 = -b + ds;
+
+  f32 t_min;
+  f32 t_max;
+
+  if (t0 < t1) {
+    t_min = t0;
+    t_max = t1;
+  } else {
+    t_min = t1;
+    t_max = t0;
+  }
+
+  // t_max is negative so both t are behind us, thus no intersection.
+  if (t_max < 0.0f) {
+    return F32_NO_HIT;
+  }
+
+  if (t_min < 0.0f) {
+    return t_max;
+  }
+
+  return t_min;
+}
+
+// Möller-Trumbore ray-triangle intersection algorithm
+inline f32 ray_triangle_intersect_distance(Ray const *ray, Triangle const *tri) {
+  const f32 EPSILON = 0.0000001f;
+
+  // Compute edges from v0
+  vec3 edge1 = vec3_sub(tri->v1, tri->v0);
+  vec3 edge2 = vec3_sub(tri->v2, tri->v0);
+
+  // Begin calculating determinant - also used to calculate u parameter
+  vec3 h = vec3_cross(ray->dir, edge2);
+  f32 a = vec3_dot(edge1, h);
+
+  // Ray is parallel to triangle
+  if (fabs(a) < EPSILON) {
+    return F32_NO_HIT;
+  }
+
+  f32 f = 1.0f / a;
+  vec3 s = vec3_sub(ray->origin, tri->v0);
+  f32 u = f * vec3_dot(s, h);
+
+  // Intersection is outside triangle
+  if (u < 0.0f || u > 1.0f) {
+    return F32_NO_HIT;
+  }
+
+  vec3 q = vec3_cross(s, edge1);
+  f32 v = f * vec3_dot(ray->dir, q);
+
+  // Intersection is outside triangle
+  if (v < 0.0f || u + v > 1.0f) {
+    return F32_NO_HIT;
+  }
+
+  // Compute t to find intersection point on ray
+  f32 t = f * vec3_dot(edge2, q);
+
+  // Check if intersection is within ray bounds
+  if (t >= ray->min_t && t <= ray->max_t) {
+    return t;
+  }
+
+  return F32_NO_HIT;
+}
+
+// Sampling
+// -
+
+inline vec3 sample_unit_sphere(f32 u1, f32 u2) {
+  // Code from PBRT `UniformSampleSphere` page 664
+  f32 z = 1.0f - 2.0f * u1;
+  f32 r = sqrtf(max(0.0f, 1.0f - z * z));
+  f32 phi = 2.0f * PI * u2;
+  f32 x = r * cosf(phi);
+  f32 y = r * sinf(phi);
+  return (vec3){ x, y, z, };
+}
 
 #define IDX_NO_HIT UINT32_MAX
 
@@ -316,7 +429,7 @@ int main(int argc, char *argv[]) {
     memset(powers, 0, width * height * sizeof(f32));
     memset(wavelengths, 0, width * height);
 
-    // Calculate camera vectors from camera state
+    // Calculate camera basis from camera controls
     CameraBasis basis;
     camera_controls_to_basis(&camera, &basis);
 

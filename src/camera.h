@@ -1,7 +1,7 @@
 #ifndef CAMERA_H_INCLUDED
 #define CAMERA_H_INCLUDED
 
-#include "kingfisher.h"
+#include "kingfisher_core.h"
 
 typedef struct CameraControls {
   vec3 position;

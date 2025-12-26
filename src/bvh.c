@@ -1,0 +1,193 @@
+#pragma warning(push)
+#pragma warning(disable: 4324)
+#include <embree4/rtcore.h>
+#pragma warning(pop)
+
+#include "bvh.h"
+
+Aabb aabb_from_RTCBounds(struct RTCBounds const *bounds) {
+  return (Aabb){
+    .lo = { bounds->lower_x, bounds->lower_y, bounds->lower_z, },
+    .hi = { bounds->upper_x, bounds->upper_y, bounds->upper_z, },
+  };
+}
+
+Aabb aabb_from_triangle(Triangle const *triangle) {
+  return (Aabb){
+    .lo = vec3_min(triangle->v0, vec3_min(triangle->v1, triangle->v2)),
+    .hi = vec3_max(triangle->v0, vec3_max(triangle->v1, triangle->v2)),
+  };
+}
+
+// Callback to create a node
+void *embree_callback_create_node(
+  RTCThreadLocalAllocator allocator,
+  u32 child_count,
+  void *user
+) {
+  BvhBuildNode *node = rtcThreadLocalAlloc(allocator, sizeof(BvhBuildNode), 16);
+  Aabb *bounds = rtcThreadLocalAlloc(allocator, child_count * sizeof(Aabb), 16);
+  BvhBuildNode **children = rtcThreadLocalAlloc(allocator, child_count * sizeof(BvhBuildNode*), 16);
+  
+  *node = (BvhBuildNode){
+    .bounds = bounds,
+    .children = children,
+    .count = child_count,
+    .prims = NULL,
+  };
+
+  return node;
+}
+
+// Callback to set the pointer to all children
+void embree_callback_set_node_children(void *pnode, void **pchildren, u32 child_count, void *user) {
+  BvhBuildNode *node = pnode;
+  BvhBuildNode **children = pchildren;
+
+  for (u32 i = 0; i < child_count; i++) {
+    node->children[i] = children[i];
+  }
+}
+
+// Callback to set the bounds of all children
+void embree_callback_set_node_bounds(void *pnode, struct RTCBounds const **bounds, u32 child_count, void *user) {
+  BvhBuildNode *node = pnode;
+
+  for (u32 i = 0; i < child_count; i++) {
+    node->bounds[i] = aabb_from_RTCBounds(bounds[i]);
+  }
+}
+
+void *embree_callback_create_leaf(RTCThreadLocalAllocator allocator, struct RTCBuildPrimitive const *build_prims, size_t prim_count, void *user) {
+  BvhBuildNode *node = rtcThreadLocalAlloc(allocator, sizeof(BvhBuildNode), 16);
+  u64 *prims = rtcThreadLocalAlloc(allocator, prim_count * sizeof(u64), 8);
+
+  for (u64 i = 0; i < prim_count; i++) {
+    prims[i] = (((u64)build_prims[i].geomID) << 32) | ((u64)build_prims[i].primID);
+  }
+
+  *node = (BvhBuildNode){
+    .count = (u32)prim_count,
+    .prims = prims,
+    .bounds = NULL,
+    .children = NULL,
+  };
+
+  return node;
+}
+
+void embree_callback_split_primitive(
+  struct RTCBuildPrimitive const *prim,
+  u32 dim,
+  f32 position,
+  struct RTCBounds *left,
+  struct RTCBounds *right,
+  void *user
+) {
+  *left = (struct RTCBounds){
+    .lower_x = prim->lower_x,
+    .lower_y = prim->lower_y,
+    .lower_z = prim->lower_z,
+    .upper_x = prim->upper_x,
+    .upper_y = prim->upper_y,
+    .upper_z = prim->upper_z,
+  };
+
+  *right = (struct RTCBounds){
+    .lower_x = prim->lower_x,
+    .lower_y = prim->lower_y,
+    .lower_z = prim->lower_z,
+    .upper_x = prim->upper_x,
+    .upper_y = prim->upper_y,
+    .upper_z = prim->upper_z,
+  };
+
+  switch (dim) {
+    case 0: {
+      left->upper_x = position;
+      right->lower_x = position;
+    } break;
+    case 1: {
+      left->upper_y = position;
+      right->lower_y = position;
+    } break;
+    case 2: {
+      left->upper_z = position;
+      right->lower_z = position;
+    } break;
+  }
+}
+
+EmbreeBvh embree_build_bvh(Triangle const *triangles, i32 triangle_count) {
+  RTCDevice dev = rtcNewDevice("");
+  if(!dev) {
+    return (EmbreeBvh){
+      .root = NULL,
+    };
+  }
+
+  i32 prim_count = triangle_count;
+
+  // Embree needs extra memory to build the BVH.
+  i32 prim_array_capacity = 2 * prim_count;
+
+  struct RTCBuildPrimitive *prims = malloc(2 * triangle_count * sizeof(struct RTCBuildPrimitive));
+  for (i32 i = 0; i < triangle_count; i++) {
+    Aabb bounds = aabb_from_triangle(&triangles[i]);
+    prims[i] = (struct RTCBuildPrimitive){
+      .lower_x = bounds.lo.x,
+      .lower_y = bounds.lo.y,
+      .lower_z = bounds.lo.z,
+      .upper_x = bounds.hi.x,
+      .upper_y = bounds.hi.y,
+      .upper_z = bounds.hi.z,
+      .geomID = 0,
+      .primID = i,
+    };
+  }
+
+  RTCBVH bvh = rtcNewBVH(dev);
+
+  struct RTCBuildArguments args = (struct RTCBuildArguments){
+    .byteSize = sizeof(struct RTCBuildArguments),
+
+    .buildQuality = RTC_BUILD_QUALITY_HIGH,
+    .buildFlags = RTC_BUILD_FLAG_NONE,
+
+    .maxBranchingFactor = 4,
+    .maxDepth = 64,
+    .sahBlockSize = 1,
+    .minLeafSize = 1,
+    .maxLeafSize = 4,
+
+    .traversalCost = 1.0f,
+    .intersectionCost = 1.0f,
+
+    .bvh = bvh,
+    .primitives = prims,
+    .primitiveCount = prim_count,
+    .primitiveArrayCapacity = prim_array_capacity,
+
+    .createNode      = embree_callback_create_node,
+    .setNodeChildren = embree_callback_set_node_children,
+    .setNodeBounds   = embree_callback_set_node_bounds,
+    .createLeaf      = embree_callback_create_leaf,
+    .splitPrimitive  = embree_callback_split_primitive,
+
+    .buildProgress = NULL,
+    .userPtr = NULL,
+  };
+
+  BvhBuildNode *root = rtcBuildBVH(&args);
+
+  free(prims);
+
+  return (EmbreeBvh){
+    .root = root,
+    .bvh = bvh,
+  };
+}
+
+void embree_free_bvh(EmbreeBvh *bvh) {
+  rtcReleaseBVH(bvh->bvh);
+}
