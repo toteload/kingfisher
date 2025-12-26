@@ -9,6 +9,9 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#define FAST_OBJ_IMPLEMENTATION
+#include <fast_obj.h>
+
 // Spectral power distribution
 typedef struct Spd_8 {
   u8 wavelengths[8];
@@ -126,6 +129,14 @@ inline vec3 sample_unit_sphere(f32 u1, f32 u2) {
   return (vec3){ x, y, z, };
 }
 
+// u1 and u2 must be in range [0, 1).
+// Returns barycentric coordinates.
+inline void sample_unit_triangle(f32 u1, f32 u2, f32 *u, f32 *v) {
+  f32 t = sqrtf(u1);
+  *u = 1.0f - t;
+  *v = u2 * t;
+}
+
 #define IDX_NO_HIT UINT32_MAX
 
 typedef struct HitRecord {
@@ -151,35 +162,20 @@ typedef struct Material {
 } Material;
 
 typedef struct Scene {
-  i32 sphere_count;
-  Sphere const *spheres;
-
   i32 triangle_count;
   Triangle const *triangles;
-
   Material const *materials;
 } Scene;
 
 void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
   f32 t = F32_NO_HIT;
   i32 hit_idx = IDX_NO_HIT;
-  i32 hit_type = 0; // 0 = sphere, 1 = triangle
-
-  for (i32 i = 0; i < scene->sphere_count; i++) {
-    f32 st = ray_sphere_intersect_distance(ray, &scene->spheres[i]);
-    if (st < t) {
-      t = st;
-      hit_idx = i;
-      hit_type = 0;
-    }
-  }
 
   for (i32 i = 0; i < scene->triangle_count; i++) {
     f32 tt = ray_triangle_intersect_distance(ray, &scene->triangles[i]);
     if (tt < t) {
       t = tt;
-      hit_idx = i + scene->sphere_count;
-      hit_type = 1;
+      hit_idx = i;
     }
   }
 
@@ -191,23 +187,12 @@ void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
     return;
   }
 
-  vec3 n;
-  if (hit_type == 0) {
-    // Sphere normal
-    vec3 p = vec3_add(ray->origin, vec3_mul(ray->dir, (vec3){ t, t, t, }));
-    n = vec3_normalized(vec3_sub(p, scene->spheres[hit_idx].origin));
-  } else if (hit_type == 1) {
-    // Triangle normal
-    i32 tri_idx = hit_idx - scene->sphere_count;
-    vec3 edge1 = vec3_sub(scene->triangles[tri_idx].v1, scene->triangles[tri_idx].v0);
-    vec3 edge2 = vec3_sub(scene->triangles[tri_idx].v2, scene->triangles[tri_idx].v0);
-    n = vec3_normalized(vec3_cross(edge1, edge2));
+  vec3 edge1 = vec3_sub(scene->triangles[hit_idx].v1, scene->triangles[hit_idx].v0);
+  vec3 edge2 = vec3_sub(scene->triangles[hit_idx].v2, scene->triangles[hit_idx].v0);
+  vec3 n = vec3_normalized(vec3_cross(edge1, edge2));
 
-    if (vec3_dot(n, ray->dir) > 0.0f) {
-      n = vec3_smul(-1.0f, n);
-    }
-  } else {
-    assert(!"Unknown type of object hit");
+  if (vec3_dot(n, ray->dir) > 0.0f) {
+    n = vec3_smul(-1.0f, n);
   }
 
   *hit = (HitRecord){
@@ -279,7 +264,13 @@ void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) 
 
 int main(int argc, char *argv[]) {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
-    return -1;
+    return 1;
+  }
+
+  fastObjMesh *mesh = fast_obj_read("data/stanford_bunny.obj");
+  if (!mesh) {
+    printf("Failed to load mesh\n");
+    return 1;
   }
 
   int width = 640;
@@ -309,6 +300,11 @@ int main(int argc, char *argv[]) {
 
   Triangle triangles[] = {
     {
+      .v0 = {  0.5f, 2.0f, -0.5f, },
+      .v1 = { -0.5f, 2.0f, -0.5f, },
+      .v2 = {  0.0f, 2.0f,  0.5f, },
+    },
+    {
       .v0 = {  0.0f,  0.0f, 0.0f },
       .v1 = { -1.0f,  0.0f, 0.0f },
       .v2 = { -1.0f, -1.0f, 0.5f }
@@ -336,11 +332,8 @@ int main(int argc, char *argv[]) {
   };
 
   Material materials[] = {
-    { MATERIAL_DIFFUSE, },
-    { MATERIAL_DIFFUSE, },
-    { MATERIAL_DIFFUSE, },
-    { MATERIAL_DIFFUSE, },
     { MATERIAL_EMISSIVE, { 40.0f, 110, } },
+    { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
     { MATERIAL_DIFFUSE, },
@@ -348,9 +341,7 @@ int main(int argc, char *argv[]) {
   };
 
   Scene scene = {
-    .sphere_count = 5,
-    .spheres = spheres,
-    .triangle_count = 5,
+    .triangle_count = 6,
     .triangles = triangles,
     .materials = materials,
   };
@@ -479,16 +470,23 @@ int main(int argc, char *argv[]) {
           continue;
         }
 
-        // The sphere at index 4 is hardcoded emissive for now
-        u32 light_idx = 4;
+        // The triangle at index 0 is hardcoded emissive for now
+        u32 light_idx = 0;
 
         Ray light_ray;
         {
           vec3 p = vec3_add(ray.origin, vec3_smul(hit.t, ray.dir));
 
-          vec3 sample = sample_unit_sphere(Rng_f32(&rng), Rng_f32(&rng));
+          f32 tu, tv;
+          sample_unit_triangle(Rng_f32(&rng), Rng_f32(&rng), &tu, &tv);
 
-          vec3 lp = vec3_add(scene.spheres[light_idx].origin, vec3_smul(scene.spheres[light_idx].radius, sample));
+          vec3 lp = vec3_add(
+            triangles[0].v0,
+            vec3_add(
+              vec3_smul(tu, vec3_sub(triangles[0].v1, triangles[0].v0)),
+              vec3_smul(tv, vec3_sub(triangles[0].v2, triangles[0].v0))
+            )
+          );
 
           vec3 origin = vec3_add(p, vec3_smul(0.001f, hit.n)); 
 
@@ -500,12 +498,11 @@ int main(int argc, char *argv[]) {
           };
         }
 
-        HitRecord light_hit;
-
         if (vec3_dot(hit.n, light_ray.dir) < 0.0f) {
           continue;
         }
 
+        HitRecord light_hit;
         trace_scene(&light_ray, &scene, &light_hit);
 
         if (light_hit.idx != light_idx) {
