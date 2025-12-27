@@ -47,6 +47,14 @@ inline f32 vec3_magnitude(vec3 a) {
   return sqrtf(vec3_dot(a, a));
 }
 
+inline vec3 vec3_reciprocal(vec3 a) {
+  return (vec3){
+    1.0f / a.x,
+    1.0f / a.y,
+    1.0f / a.z,
+  };
+}
+
 inline vec3 vec3_normalized(vec3 a) {
   f32 m = 1.0f / vec3_magnitude(a);
   return vec3_mul(a, (vec3){ m, m, m, });

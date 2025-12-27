@@ -19,7 +19,22 @@ typedef struct EmbreeBvh {
   void *bvh; // RTCBVH
 } EmbreeBvh;
 
+typedef struct Bvh {
+  u64 node_count;
+
+  u32 *index;
+  u8 *meta;
+  Aabb *bounds;
+
+  u64 prim_count;
+  u64 *prims;
+} Bvh;
+
 EmbreeBvh embree_bvh_build(Triangle const *triangles, i32 triangle_count);
 void embree_bvh_free(EmbreeBvh *bvh);
+
+void embree_bvh_intersect(EmbreeBvh const *bvh, Ray const *ray, Triangle const *triangles, HitRecord *record);
+
+void bvh_build_from_embree_bvh(EmbreeBvh const *embree_bvh, Bvh *bvh);
 
 #endif // BVH_H_INCLUDED

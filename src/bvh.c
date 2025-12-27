@@ -42,7 +42,7 @@ void *embree_callback_create_node(
 // Callback to set the pointer to all children
 void embree_callback_set_node_children(void *pnode, void **pchildren, u32 child_count, void *user) {
   BvhBuildNode *node = pnode;
-  BvhBuildNode **children = pchildren;
+  BvhBuildNode **children = (BvhBuildNode**)pchildren;
 
   for (u32 i = 0; i < child_count; i++) {
     node->children[i] = children[i];
@@ -118,7 +118,7 @@ void embree_callback_split_primitive(
   }
 }
 
-EmbreeBvh embree_build_bvh(Triangle const *triangles, i32 triangle_count) {
+EmbreeBvh embree_bvh_build(Triangle const *triangles, i32 triangle_count) {
   RTCDevice dev = rtcNewDevice("");
   if(!dev) {
     return (EmbreeBvh){
@@ -154,7 +154,7 @@ EmbreeBvh embree_build_bvh(Triangle const *triangles, i32 triangle_count) {
     .buildQuality = RTC_BUILD_QUALITY_HIGH,
     .buildFlags = RTC_BUILD_FLAG_NONE,
 
-    .maxBranchingFactor = 4,
+    .maxBranchingFactor = 2,
     .maxDepth = 64,
     .sahBlockSize = 1,
     .minLeafSize = 1,
@@ -190,4 +190,138 @@ EmbreeBvh embree_build_bvh(Triangle const *triangles, i32 triangle_count) {
 
 void embree_free_bvh(EmbreeBvh *bvh) {
   rtcReleaseBVH(bvh->bvh);
+}
+
+void embree_bvh_intersect(
+  EmbreeBvh const *bvh,
+  Ray const *ray,
+  Triangle const *triangles,
+  HitRecord *record
+) {
+  BvhBuildNode *stack[64] = { bvh->root };
+  u32 top = 1;
+
+  HitRecord rec = {
+    .t = F32_NO_HIT,
+  };
+
+  vec3 reciprocal_ray_dir = vec3_reciprocal(ray->dir);
+
+  while (top) {
+    BvhBuildNode *node = stack[--top];
+
+    bool is_leaf = node->prims != NULL;
+
+    if (is_leaf) {
+      for (u32 i = 0; i < node->count; i++) {
+        u64 prim_idx = node->prims[i];
+        Triangle const *tri = &triangles[prim_idx];
+
+        TriangleHit hit;
+        bool has_hit = ray_triangle_intersect(ray, tri, &hit);
+        if (!has_hit) {
+          continue;
+        }
+
+        if (hit.t < rec.t) {
+          rec = (HitRecord){
+            .t = hit.t,
+            .u = hit.u,
+            .v = hit.v,
+            .idx = prim_idx,
+          };
+        }
+      }
+    } else {
+      for (u32 i = 0; i < node->count; i++) {
+        Aabb *bound = &node->bounds[i];
+
+        f32 t = aabb_intersect(bound, ray->origin, reciprocal_ray_dir);
+        if (t == F32_NO_HIT) {
+          continue;
+        }
+
+        stack[top++] = node->children[i];
+      }
+    }
+  }
+
+  *record = rec;
+}
+
+typedef struct BvhBuildContext {
+  u64 node_offset;
+  u64 prim_offset;
+} BvhBuildContext;
+
+void bvh_build_node(
+  BvhBuildContext *ctx,
+  Bvh *bvh,
+  BvhBuildNode const *node,
+  u32 self
+) {
+  u32 is_leaf = node->prims != NULL;
+
+  if (is_leaf) {
+    u32 offset = (u32)ctx->prim_offset;
+    u32 count = node->count;
+
+    bvh->index[self] = offset;
+    bvh->meta[self] = (u8)count;
+
+    memcpy(bvh->prims + offset, node->prims, count * sizeof(u64));
+
+    ctx->prim_offset += count;
+  } else {
+    u32 offset = (u32)ctx->node_offset;
+    u32 count = node->count;
+
+    bvh->index[self] = offset;
+    bvh->meta[self] = 0x80 | ((u8)count);
+
+    memcpy(bvh->bounds + offset, node->bounds, count * sizeof(Aabb));
+
+    ctx->node_offset += count;
+
+    for (u32 i = 0; i < count; i++) {
+      bvh_build_node(ctx, bvh, node->children[i], offset + i);
+    }
+  }
+}
+
+u64 bvh_node_and_prim_count(BvhBuildNode const *node, u64 *prim_count) {
+  u32 is_leaf = node->prims != NULL;
+
+  if (is_leaf) {
+    *prim_count += node->count;
+    return 1;
+  }
+
+  u64 count = 1;
+  for (u32 i = 0; i < node->count; i++) {
+    count += bvh_node_and_prim_count(node->children[i], prim_count);
+  }
+
+  return count;
+}
+
+void bvh_build_from_embree_bvh(EmbreeBvh const *embree_bvh, Bvh *bvh) {
+  u64 prim_count;
+  u64 node_count = bvh_node_and_prim_count(embree_bvh->root, &prim_count);
+
+  *bvh = (Bvh){
+    .node_count = node_count,
+    .index = malloc(node_count * sizeof(u32)),
+    .meta = malloc(node_count * sizeof(u8)),
+    .bounds = malloc(node_count * sizeof(Aabb)),
+    .prim_count = prim_count,
+    .prims = malloc(prim_count * sizeof(u64)),
+  };
+
+  BvhBuildContext ctx = {
+    .node_offset = 0,
+    .prim_offset = 0,
+  };
+
+  bvh_build_node(&ctx, bvh, embree_bvh->root, 0);
 }

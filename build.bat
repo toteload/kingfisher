@@ -11,5 +11,6 @@ set OPTIONS=/nologo /W4 /Zi /wd4201 /wd4100 /wd4189 /Iext /Iext\SDL /Iext\embree
 cl %OPTIONS% /c src\main.c /Fo:main.obj
 cl %OPTIONS% /c src\cie_xyz_lut.c /Fo:cie_xyz_lut.obj
 cl %OPTIONS% /c src\bvh.c /Fo:bvh.obj
+cl %OPTIONS% /c src\aabb.c /Fo:aabb.obj
 
-cl /nologo /Fe:kingfisher /Zi main.obj cie_xyz_lut.obj %LIBS% /link /SUBSYSTEM:CONSOLE
+cl /nologo /Fe:kingfisher /Zi main.obj aabb.obj cie_xyz_lut.obj bvh.obj %LIBS% /link /SUBSYSTEM:CONSOLE

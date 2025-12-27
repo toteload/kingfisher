@@ -1,4 +1,4 @@
-SDL3.dll
+*.dll
 .vs/
 ext/embree-4.4.0/lib/*
 ext/embree-4.4.0/include/**/*.isph

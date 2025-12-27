@@ -8,6 +8,8 @@ typedef struct Aabb {
   vec3 lo, hi;
 } Aabb;
 
-#define AABB_EMPTY ((Aabb){.lo={INFINITY,INFINITY,INFINITY},.hi={-INFINITY,-INFINITY,-INFINITY}})
+#define AABB_EMPTY ((Aabb){.lo={FLT_MAX,FLT_MAX,FLT_MAX},.hi={-FLT_MAX,-FLT_MAX,-FLT_MAX}})
+
+f32 aabb_intersect(Aabb const *bounds, vec3 ray_origin, vec3 reciprocal_ray_dir);
 
 #endif // AABB_H_INCLUDED

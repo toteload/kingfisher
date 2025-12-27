@@ -9,8 +9,12 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+
+#pragma warning(push)
+#pragma warning(disable:4996)
 #define FAST_OBJ_IMPLEMENTATION
 #include <fast_obj.h>
+#pragma warning(pop)
 
 // Spectral power distribution
 typedef struct Spd_8 {
@@ -20,101 +24,6 @@ typedef struct Spd_8 {
 
 // Ray intersection
 // -
-
-#define F32_NO_HIT INFINITY
-
-typedef struct Sphere {
-  vec3 origin;
-  f32 radius;
-} Sphere;
-
-inline f32 ray_sphere_intersect_distance(Ray const *ray, Sphere const *sphere) {
-  vec3 m = vec3_sub(ray->origin, sphere->origin);
-  f32 b = vec3_dot(m, ray->dir);
-  f32 c = vec3_dot(m, m) - sphere->radius * sphere->radius;
-
-  if (c > 0.0f && b > 0.0f) {
-    return F32_NO_HIT;
-  }
-
-  f32 d = b * b - c;
-
-  if (d < 0.0f) {
-    return F32_NO_HIT;
-  }
-
-  f32 ds = sqrtf(d);
-
-  f32 t0 = -b - ds;
-  f32 t1 = -b + ds;
-
-  f32 t_min;
-  f32 t_max;
-
-  if (t0 < t1) {
-    t_min = t0;
-    t_max = t1;
-  } else {
-    t_min = t1;
-    t_max = t0;
-  }
-
-  // t_max is negative so both t are behind us, thus no intersection.
-  if (t_max < 0.0f) {
-    return F32_NO_HIT;
-  }
-
-  if (t_min < 0.0f) {
-    return t_max;
-  }
-
-  return t_min;
-}
-
-// Möller-Trumbore ray-triangle intersection algorithm
-inline f32 ray_triangle_intersect_distance(Ray const *ray, Triangle const *tri) {
-  const f32 EPSILON = 0.0000001f;
-
-  // Compute edges from v0
-  vec3 edge1 = vec3_sub(tri->v1, tri->v0);
-  vec3 edge2 = vec3_sub(tri->v2, tri->v0);
-
-  // Begin calculating determinant - also used to calculate u parameter
-  vec3 h = vec3_cross(ray->dir, edge2);
-  f32 a = vec3_dot(edge1, h);
-
-  // Ray is parallel to triangle
-  if (fabs(a) < EPSILON) {
-    return F32_NO_HIT;
-  }
-
-  f32 f = 1.0f / a;
-  vec3 s = vec3_sub(ray->origin, tri->v0);
-  f32 u = f * vec3_dot(s, h);
-
-  // Intersection is outside triangle
-  if (u < 0.0f || u > 1.0f) {
-    return F32_NO_HIT;
-  }
-
-  vec3 q = vec3_cross(s, edge1);
-  f32 v = f * vec3_dot(ray->dir, q);
-
-  // Intersection is outside triangle
-  if (v < 0.0f || u + v > 1.0f) {
-    return F32_NO_HIT;
-  }
-
-  // Compute t to find intersection point on ray
-  f32 t = f * vec3_dot(edge2, q);
-
-  // Check if intersection is within ray bounds
-  if (t >= ray->min_t && t <= ray->max_t) {
-    return t;
-  }
-
-  return F32_NO_HIT;
-}
 
 // Sampling
 // -
@@ -137,13 +46,8 @@ inline void sample_unit_triangle(f32 u1, f32 u2, f32 *u, f32 *v) {
   *v = u2 * t;
 }
 
+#if 0
 #define IDX_NO_HIT UINT32_MAX
-
-typedef struct HitRecord {
-  f32 t;
-  vec3 n;
-  u32 idx;
-} HitRecord;
 
 enum MaterialKind {
   MATERIAL_EMISSIVE,
@@ -201,6 +105,7 @@ void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
     .idx = hit_idx,
   };
 }
+#endif
 
 void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) {
   // Get current camera direction vectors
@@ -267,6 +172,23 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  int width = 640;
+  int height = 480;
+
+  SDL_Window *window;
+  SDL_Renderer *renderer;
+  if (!SDL_CreateWindowAndRenderer("Kingfisher", width, height, 0, &window, &renderer)) {
+    return 1;
+  }
+
+  SDL_Texture *screen = SDL_CreateTexture(
+    renderer,
+    SDL_PIXELFORMAT_XBGR8888,
+    SDL_TEXTUREACCESS_STREAMING,
+    width,
+    height
+  );
+
   u32 bunny_triangle_count;
   Triangle *bunny_triangles;
   {
@@ -305,70 +227,10 @@ int main(int argc, char *argv[]) {
     fast_obj_destroy(mesh);
   }
 
-  int width = 640;
-  int height = 480;
+  EmbreeBvh build_bvh = embree_bvh_build(bunny_triangles, bunny_triangle_count);
 
-  SDL_Window *window;
-  SDL_Renderer *renderer;
-  if (!SDL_CreateWindowAndRenderer("Kingfisher", width, height, 0, &window, &renderer)) {
-    return 1;
-  }
-
-  SDL_Texture *screen = SDL_CreateTexture(
-    renderer,
-    SDL_PIXELFORMAT_XBGR8888,
-    SDL_TEXTUREACCESS_STREAMING,
-    width,
-    height
-  );
-
-  Triangle triangles[] = {
-    {
-      .v0 = {  0.5f, 2.0f, -0.5f, },
-      .v1 = { -0.5f, 2.0f, -0.5f, },
-      .v2 = {  0.0f, 2.0f,  0.5f, },
-    },
-    {
-      .v0 = {  0.0f,  0.0f, 0.0f },
-      .v1 = { -1.0f,  0.0f, 0.0f },
-      .v2 = { -1.0f, -1.0f, 0.5f }
-    },
-    {
-      .v0 = { 0.0f,  0.0f, 0.0f },
-      .v1 = { 0.0f,  0.0f, 1.0f },
-      .v2 = { 0.5f, -1.0f, 1.0f }
-    },
-    {
-      .v0 = {  0.0f,  0.0f, 0.0f },
-      .v1 = {  1.0f,  0.0f, 0.0f },
-      .v2 = {  1.0f, -1.0f, 0.5f }
-    },
-    {
-      .v0 = { 0.0f,  0.0f,  0.0f },
-      .v1 = { 0.0f,  0.0f, -1.0f },
-      .v2 = { 0.5f, -1.0f, -1.0f }
-    },
-    {
-      .v0 = {  1.0f,  0.0f,  0.0f },
-      .v1 = { -1.0f,  0.0f,  1.0f },
-      .v2 = { -1.0f,  0.0f, -1.0f }
-    },
-  };
-
-  Material materials[] = {
-    { MATERIAL_EMISSIVE, { 40.0f, 110, } },
-    { MATERIAL_DIFFUSE, },
-    { MATERIAL_DIFFUSE, },
-    { MATERIAL_DIFFUSE, },
-    { MATERIAL_DIFFUSE, },
-    { MATERIAL_DIFFUSE, },
-  };
-
-  Scene scene = {
-    .triangle_count = bunny_triangle_count / 100,
-    .triangles = bunny_triangles,
-    .materials = materials,
-  };
+  //Bvh bvh;
+  //bvh_build_from_embree_bvh(&build_bvh, &bvh);
 
   f32 *powers = malloc(width * height * sizeof(f32));
   u8 *wavelengths = malloc(width * height);
@@ -478,10 +340,10 @@ int main(int argc, char *argv[]) {
           generate_primary_ray_pinhole(&basis, &pinhole, &ray, u, v);
         }
 
-        HitRecord hit;
-        trace_scene(&ray, &scene, &hit);
+        HitRecord rec;
+        embree_bvh_intersect(&build_bvh, &ray, bunny_triangles, &rec); 
 
-        if (hit.t == F32_NO_HIT) {
+        if (rec.t == F32_NO_HIT) {
           powers[i] = 0.0f;
           continue;
         }
