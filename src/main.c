@@ -9,7 +9,6 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
-
 #pragma warning(push)
 #pragma warning(disable:4996)
 #define FAST_OBJ_IMPLEMENTATION
@@ -21,9 +20,6 @@ typedef struct Spd_8 {
   u8 wavelengths[8];
   f32 powers[8];
 } Spd_8;
-
-// Ray intersection
-// -
 
 // Sampling
 // -
@@ -106,66 +102,6 @@ void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
   };
 }
 #endif
-
-void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) {
-  // Get current camera direction vectors
-  vec3 dir, du, dv;
-  camera_controls_to_vectors(camera, &dir, &du, &dv);
-
-  // Movement in local space
-  vec3 movement = { 0.0f, 0.0f, 0.0f };
-
-  if (keys[SDL_SCANCODE_W]) {
-    movement = vec3_add(movement, dir);  // Forward
-  }
-  if (keys[SDL_SCANCODE_S]) {
-    movement = vec3_sub(movement, dir);  // Backward
-  }
-  if (keys[SDL_SCANCODE_A]) {
-    movement = vec3_sub(movement, du);   // Strafe left
-  }
-  if (keys[SDL_SCANCODE_D]) {
-    movement = vec3_add(movement, du);   // Strafe right
-  }
-
-  // Vertical movement in world space
-  if (keys[SDL_SCANCODE_E]) {
-    movement.y += 1.0f;  // Move up
-  }
-  if (keys[SDL_SCANCODE_Q]) {
-    movement.y -= 1.0f;  // Move down
-  }
-
-  // Apply movement
-  if (vec3_dot(movement, movement) > 0.0f) {
-    vec3 velocity = vec3_smul(camera->move_speed * dt, vec3_normalized(movement));
-    camera->position = vec3_add(camera->position, velocity);
-  }
-
-  // Rotation
-  if (keys[SDL_SCANCODE_UP]) {
-    camera->pitch += camera->rot_speed * dt;  // Pitch up
-  }
-  if (keys[SDL_SCANCODE_DOWN]) {
-    camera->pitch -= camera->rot_speed * dt;  // Pitch down
-  }
-  if (keys[SDL_SCANCODE_LEFT]) {
-    camera->yaw -= camera->rot_speed * dt;    // Yaw left
-  }
-  if (keys[SDL_SCANCODE_RIGHT]) {
-    camera->yaw += camera->rot_speed * dt;    // Yaw right
-  }
-
-  while (camera->yaw < 0.0f) {
-    camera->yaw += 2.0f * PI;
-  }
-
-  while (camera->yaw >= 2.0f * PI) {
-    camera->yaw -= 2.0f * PI;
-  }
-
-  camera->pitch = clamp(-0.5f * PI, 0.5f * PI, camera->pitch);
-}
 
 int main(int argc, char *argv[]) {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
