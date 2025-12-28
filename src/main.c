@@ -104,6 +104,43 @@ void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
 }
 #endif
 
+bool read_obj_triangles(char const *filename, Triangle **triangles, u64 *triangle_count) {
+  fastObjMesh *mesh = fast_obj_read(filename);
+
+  if (!mesh) {
+    return false;
+  }
+
+  assert(mesh->group_count == 1);
+
+  fastObjGroup group = mesh->groups[0];
+
+  Triangle *tris = malloc(mesh->face_count * sizeof(Triangle));
+  for (u32 i = 0; i < group.face_count; i++) {
+    // Only support triangles
+    assert(mesh->face_vertices[group.face_offset + i] == 3);
+
+    for (u32 j = 0; j < 3; j++) {
+      fastObjIndex idx = mesh->indices[group.index_offset + 3 * i + j];
+
+      assert(idx.p != 0);
+
+      tris[i].p[j] = (vec3){
+        mesh->positions[3 * idx.p + 0],
+        mesh->positions[3 * idx.p + 1],
+        mesh->positions[3 * idx.p + 2],
+      };
+    }
+  }
+
+  *triangle_count = group.face_count;
+  *triangles = tris;
+
+  fast_obj_destroy(mesh);
+
+  return true;
+}
+
 int main(int argc, char *argv[]) {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
     return 1;
@@ -128,48 +165,17 @@ int main(int argc, char *argv[]) {
     height
   );
 
-  u32 bunny_triangle_count;
+  u64 bunny_triangle_count;
   Triangle *bunny_triangles;
-  {
-    fastObjMesh *mesh = fast_obj_read("data/stanford_bunny.obj");
-
-    if (!mesh) {
-      printf("Failed to load mesh\n");
-      return 1;
-    }
-
-    assert(mesh->group_count == 1);
-
-    fastObjGroup group = mesh->groups[0];
-
-    Triangle *triangles = malloc(mesh->face_count * sizeof(Triangle));
-    for (u32 i = 0; i < group.face_count; i++) {
-      // Only support triangles
-      assert(mesh->face_vertices[group.face_offset + i] == 3);
-
-      for (u32 j = 0; j < 3; j++) {
-        fastObjIndex idx = mesh->indices[group.index_offset + 3 * i + j];
-
-        assert(idx.p != 0);
-
-        triangles[i].p[j] = (vec3){
-          mesh->positions[3 * idx.p + 0],
-          mesh->positions[3 * idx.p + 1],
-          mesh->positions[3 * idx.p + 2],
-        };
-      }
-    }
-
-    bunny_triangle_count = group.face_count;
-    bunny_triangles = triangles;
-
-    fast_obj_destroy(mesh);
+  if (!read_obj_triangles("data/stanford_bunny.obj", &bunny_triangles, &bunny_triangle_count)) {
+    printf("Failed to load Stanford bunny.\n");
+    return 1;
   }
 
   EmbreeBvh build_bvh = embree_bvh_build(bunny_triangles, bunny_triangle_count);
 
-  //Bvh bvh;
-  //bvh_build_from_embree_bvh(&build_bvh, &bvh);
+  Bvh bvh;
+  bvh_build_from_embree_bvh(&build_bvh, &bvh);
 
   // Accumulation buffer
   vec3 *xyz = malloc(width * height * sizeof(vec3));
@@ -214,9 +220,7 @@ int main(int argc, char *argv[]) {
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-      if (ui_handle_event(ui, &event)) {
-        continue;
-      }
+      ui_handle_event(ui, &event);
 
       if (event.type == SDL_EVENT_QUIT) {
         goto exit;
@@ -274,6 +278,7 @@ int main(int argc, char *argv[]) {
 
         HitRecord rec;
         embree_bvh_intersect(&build_bvh, &ray, bunny_triangles, &rec);
+        //bvh_intersect(&bvh, &ray, bunny_triangles, &rec);
 
         if (rec.t == F32_NO_HIT) {
           continue;

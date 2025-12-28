@@ -1,9 +1,20 @@
 #include "ui.h"
 
+#pragma warning(push)
+#pragma warning(disable:4116)
+#pragma warning(disable:4127)
+#pragma warning(disable:4701)
 #define NK_IMPLEMENTATION
 #include <nuklear/nuklear.h>
+#pragma warning(pop)
+
+#pragma warning(push)
+#pragma warning(disable:4116)
+#pragma warning(disable:4244)
+#pragma warning(disable:4267)
 #define NK_SDL3_RENDERER_IMPLEMENTATION
 #include <nuklear/nuklear_sdl3_renderer.h>
+#pragma warning(pop)
 
 UiState *ui_init(SDL_Window *window, SDL_Renderer *renderer) {
   UiState *state = malloc(sizeof(UiState));

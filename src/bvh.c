@@ -3,6 +3,8 @@
 #include <embree4/rtcore.h>
 #pragma warning(pop)
 
+#include <SDL3/SDL.h>
+
 #include "bvh.h"
 
 Aabb aabb_from_RTCBounds(struct RTCBounds const *bounds) {
@@ -118,7 +120,7 @@ void embree_callback_split_primitive(
   }
 }
 
-EmbreeBvh embree_bvh_build(Triangle const *triangles, i32 triangle_count) {
+EmbreeBvh embree_bvh_build(Triangle const *triangles, u64 triangle_count) {
   RTCDevice dev = rtcNewDevice("");
   if(!dev) {
     return (EmbreeBvh){
@@ -126,10 +128,10 @@ EmbreeBvh embree_bvh_build(Triangle const *triangles, i32 triangle_count) {
     };
   }
 
-  i32 prim_count = triangle_count;
+  u64 prim_count = triangle_count;
 
   // Embree needs extra memory to build the BVH.
-  i32 prim_array_capacity = 2 * prim_count;
+  u64 prim_array_capacity = 2 * prim_count;
 
   struct RTCBuildPrimitive *prims = malloc(2 * triangle_count * sizeof(struct RTCBuildPrimitive));
   for (i32 i = 0; i < triangle_count; i++) {
@@ -266,7 +268,7 @@ void bvh_build_node(
     u32 offset = (u32)ctx->prim_offset;
     u32 count = node->count;
 
-    bvh->index[self] = offset;
+    bvh->offset[self] = offset;
     bvh->meta[self] = (u8)count;
 
     memcpy(bvh->prims + offset, node->prims, count * sizeof(u64));
@@ -276,7 +278,7 @@ void bvh_build_node(
     u32 offset = (u32)ctx->node_offset;
     u32 count = node->count;
 
-    bvh->index[self] = offset;
+    bvh->offset[self] = offset;
     bvh->meta[self] = 0x80 | ((u8)count);
 
     memcpy(bvh->bounds + offset, node->bounds, count * sizeof(Aabb));
@@ -311,7 +313,7 @@ void bvh_build_from_embree_bvh(EmbreeBvh const *embree_bvh, Bvh *bvh) {
 
   *bvh = (Bvh){
     .node_count = node_count,
-    .index = malloc(node_count * sizeof(u32)),
+    .offset = malloc(node_count * sizeof(u32)),
     .meta = malloc(node_count * sizeof(u8)),
     .bounds = malloc(node_count * sizeof(Aabb)),
     .prim_count = prim_count,
@@ -319,9 +321,80 @@ void bvh_build_from_embree_bvh(EmbreeBvh const *embree_bvh, Bvh *bvh) {
   };
 
   BvhBuildContext ctx = {
-    .node_offset = 0,
+    .node_offset = 1,
     .prim_offset = 0,
   };
 
   bvh_build_node(&ctx, bvh, embree_bvh->root, 0);
+
+  SDL_assert_always(ctx.node_offset == node_count);
+  SDL_assert_always(ctx.prim_offset == prim_count);
+}
+
+void bvh_intersect(
+  Bvh const *bvh,
+  Ray const *ray,
+  Triangle const *triangles,
+  HitRecord *record
+) {
+  u32 stack[64];
+  u32 top = 0;
+
+  {
+    u32 offset = bvh->offset[0];
+    u32 count = (bvh->meta[0] & 0x7f);
+    for (u32 i = 0; i < count; i++) {
+      stack[top++] = offset + i;
+    }
+  }
+
+  HitRecord rec = {
+    .t = F32_NO_HIT,
+  };
+
+  vec3 reciprocal_ray_dir = vec3_reciprocal(ray->dir);
+
+  while (top) {
+    u32 index = stack[--top];
+
+    bool is_leaf = (bvh->meta[index] & 0x80) == 0;
+
+    u32 count = bvh->meta[index] & 0x7f;
+    u32 offset = bvh->offset[index];
+
+    if (is_leaf) {
+      for (u32 i = 0; i < count; i++) {
+        u64 prim_idx = bvh->prims[offset + i];
+        Triangle const *tri = &triangles[prim_idx];
+
+        TriangleHit hit;
+        bool has_hit = ray_triangle_intersect(ray, tri, &hit);
+        if (!has_hit) {
+          continue;
+        }
+
+        if (hit.t < rec.t) {
+          rec = (HitRecord){
+            .t = hit.t,
+            .u = hit.u,
+            .v = hit.v,
+            .idx = prim_idx,
+          };
+        }
+      }
+    } else {
+      for (u32 i = 0; i < count; i++) {
+        Aabb *bound = &bvh->bounds[offset + i];
+
+        f32 t = aabb_intersect(bound, ray->origin, reciprocal_ray_dir);
+        if (t == F32_NO_HIT) {
+          continue;
+        }
+
+        stack[top++] = offset + i;
+      }
+    }
+  }
+
+  *record = rec;
 }

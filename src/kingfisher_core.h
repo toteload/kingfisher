@@ -131,7 +131,7 @@ inline bool ray_triangle_intersect(
 #define clamp(lo,hi,t) min(max(lo, t), hi)
 
 inline u32 clz32(u32 x) {
-  u32 idx;
+  unsigned long idx;
   u8 res = _BitScanReverse(&idx, x);
   return (res) ? (31 - idx) : 32;
 }
