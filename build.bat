@@ -13,5 +13,6 @@ cl %OPTIONS% /c src\cie_xyz_lut.c /Fo:cie_xyz_lut.obj
 cl %OPTIONS% /c src\bvh.c /Fo:bvh.obj
 cl %OPTIONS% /c src\aabb.c /Fo:aabb.obj
 cl %OPTIONS% /c src\camera.c /Fo:camera.obj
+cl %OPTIONS% /c src\ui.c /Fo:ui.obj
 
-cl /nologo /Fe:kingfisher /Zi main.obj camera.obj aabb.obj cie_xyz_lut.obj bvh.obj %LIBS% /link /SUBSYSTEM:CONSOLE
+cl /nologo /Fe:kingfisher /Zi main.obj ui.obj camera.obj aabb.obj cie_xyz_lut.obj bvh.obj %LIBS% /link /SUBSYSTEM:CONSOLE

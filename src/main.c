@@ -2,6 +2,7 @@
 #include "camera.h"
 #include "colorspace.h"
 #include "bvh.h"
+#include "ui.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -117,6 +118,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  UiState *ui = ui_init(window, renderer);
+
   SDL_Texture *screen = SDL_CreateTexture(
     renderer,
     SDL_PIXELFORMAT_XBGR8888,
@@ -211,6 +214,10 @@ int main(int argc, char *argv[]) {
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+      if (ui_handle_event(ui, &event)) {
+        continue;
+      }
+
       if (event.type == SDL_EVENT_QUIT) {
         goto exit;
       }
@@ -219,9 +226,6 @@ int main(int argc, char *argv[]) {
         goto exit;
       }
     }
-
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0x00);
-    SDL_RenderClear(renderer);
 
     // Update camera from keyboard input
     const bool *keys = SDL_GetKeyboardState(NULL);
@@ -244,62 +248,43 @@ int main(int argc, char *argv[]) {
       for (i32 x = 0; x < width; x++) {
         i32 i = y * width + x;
 
-        // pixel dimensions in range [-1, 1]
-        f32 pixel_width = 2.0f / width;
-        f32 pixel_height = 2.0f / height;
+        f32 u = 2.0f * ((f32)x + 0.5f) / width - 1.0f;
+        f32 v = 2.0f * ((f32)y + 0.5f) / height - 1.0f;
 
-        // Base pixel position (bottom-left corner of pixel)
-        f32 base_u = 2.0f * ((f32)x) / width - 1.0f;
-        f32 base_v = 2.0f * ((f32)y) / height - 1.0f;
+        Ray ray;
+        //{
+        //  PerspectiveOrtho ortho = {
+        //    .width = width / 80.0f,
+        //    .height = height / 80.0f,
+        //    .near = 1.0e-3f,
+        //    .far = 1.0e5f,
+        //  };
+        //  generate_primary_ray_ortho(&basis, &ortho, &ray, u, v);
+        //}
+        {
+          PerspectivePinhole pinhole = {
+            .fov_radians = 0.5f * PI,
+            .inv_aspect_ratio = ((f32)height) / width,
+            .near = 1.0e-3f,
+            .far = 1.0e5f,
+          };
 
-        // Stratified jittered sampling: divide pixel into 2 x 2 grid
-        u32 strat_size = 2;
-        for (u32 sy = 0; sy < strat_size; sy++) {
-          for (u32 sx = 0; sx < strat_size; sx++) {
-            // Jittered position within this stratum
-            f32 jitter_x = Rng_f32(&rng);  // Random in [0, 1)
-            f32 jitter_y = Rng_f32(&rng);  // Random in [0, 1)
-
-            // Compute jittered sample position in normalized device coordinates
-            f32 u = base_u + pixel_width * (sx + jitter_x) / strat_size;
-            f32 v = base_v + pixel_height * (sy + jitter_y) / strat_size;
-
-            Ray ray;
-            //{
-            //  PerspectiveOrtho ortho = {
-            //    .width = width / 80.0f,
-            //    .height = height / 80.0f,
-            //    .near = 1.0e-3f,
-            //    .far = 1.0e5f,
-            //  };
-            //  generate_primary_ray_ortho(&basis, &ortho, &ray, u, v);
-            //}
-            {
-              PerspectivePinhole pinhole = {
-                .fov_radians = 0.5f * PI,
-                .inv_aspect_ratio = ((f32)height) / width,
-                .near = 1.0e-3f,
-                .far = 1.0e5f,
-              };
-
-              generate_primary_ray_pinhole(&basis, &pinhole, &ray, u, v);
-            }
-
-            HitRecord rec;
-            embree_bvh_intersect(&build_bvh, &ray, bunny_triangles, &rec);
-
-            if (rec.t == F32_NO_HIT) {
-              continue;
-            }
-
-            // Convert wavelength+power to XYZ and accumulate directly
-            f32 power = 40.0f;
-            u8 wavelength = 120;
-
-            vec3 s = spectral_to_xyz(wavelength);
-            xyz[i] = vec3_add(xyz[i], vec3_smul(power, s));
-          }
+          generate_primary_ray_pinhole(&basis, &pinhole, &ray, u, v);
         }
+
+        HitRecord rec;
+        embree_bvh_intersect(&build_bvh, &ray, bunny_triangles, &rec);
+
+        if (rec.t == F32_NO_HIT) {
+          continue;
+        }
+
+        // Convert wavelength+power to XYZ and accumulate directly
+        f32 power = 40.0f;
+        u8 wavelength = 120;
+
+        vec3 s = spectral_to_xyz(wavelength);
+        xyz[i] = vec3_add(xyz[i], vec3_smul(power, s));
 
 #if 0
         Material mat = scene.materials[hit.idx];
@@ -355,8 +340,7 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // Increment sample count by total samples per pixel for this frame
-    sample_count += sqrt_spp * sqrt_spp;
+    sample_count += 1;
 
     void *buffer;
     int pitch;
@@ -382,7 +366,27 @@ int main(int argc, char *argv[]) {
     }
 
     SDL_UnlockTexture(screen);
+
+    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0x00);
+    SDL_RenderClear(renderer);
+
     SDL_RenderTexture(renderer, screen, NULL, NULL);
+
+    {
+      struct nk_context *ctx = ui->ctx;
+      if (nk_begin(ctx, "Hello", nk_rect(50, 50, 200, 200), NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_MOVABLE)) {
+        nk_layout_row_static(ctx, 30, 80, 1);
+        if (nk_button_label(ctx, "button")) {
+          // if pressed
+        }
+      }
+      nk_end(ctx);
+    }
+
+    ui_render(ui);
+
+    SDL_SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff);
+    SDL_RenderDebugTextFormat(renderer, 2.0f, 2.0f, "%4.01fms", dt * 1000.0f);
 
     SDL_RenderPresent(renderer);
   }
