@@ -16,7 +16,7 @@ This project uses the MSVC compiler directly via batch scripts.
 build.bat
 ```
 
-This compiles `src/main.c` and `src/cie_xyz_lut.c` with optimization flags and links against SDL3.
+This compiles all source files (`src/main.c`, `src/cie_xyz_lut.c`, `src/vec3.c`, `src/camera.c`, `src/bvh.c`, `src/aabb.c`) with optimization flags and links against SDL3 and Embree.
 
 ### Running
 
@@ -34,28 +34,61 @@ The renderer uses a unique spectral approach:
 
 1. **Spectral Representation**: Light is stored as wavelength (u8) + power (f32) pairs instead of RGB. Wavelengths are encoded as `wavelength * 2 + 360` to represent 360-830nm range in 8 bits.
 
-2. **Ray Tracing**: Each pixel traces rays through the scene, computing intersections with spheres. The renderer performs direct light sampling by randomly sampling points on emissive surfaces.
+2. **Ray Tracing**: The renderer traces the Stanford bunny mesh loaded from an OBJ file. Ray-triangle intersections are accelerated using Embree's BVH.
 
-3. **Color Conversion Pipeline**:
-   - Wavelength + power → CIE XYZ (via lookup tables in `cie_xyz_lut.c`)
+3. **Stratified Jittered Sampling**: Each pixel uses stratified sampling with random jittering for antialiasing. The pixel is divided into an N×N grid (configurable via `sqrt_spp` in main.c), and one jittered sample is taken from each stratum.
+
+4. **Color Conversion Pipeline**:
+   - For each sample: wavelength + power → CIE XYZ (via lookup tables in `cie_xyz_lut.c`)
+   - XYZ values are accumulated across all samples
+   - Per-pixel average: accumulated XYZ / sample_count
    - XYZ → normalized XYZ (using reference black/white points)
    - Normalized XYZ → linear RGB (3x3 matrix transform)
    - Linear RGB → sRGB (gamma correction)
 
 ### Code Structure
 
-**src/kingfisher.h**: Main header containing all core functionality
-- Vector math (vec3)
-- Random number generation (xoshiro128+ RNG)
-- Camera models (orthographic and pinhole)
-- Ray-sphere intersection
-- Spectral to RGB conversion functions
-
 **src/main.c**: Application entry point
-- Scene definition (spheres, materials)
+- Loads Stanford bunny mesh from `data/stanford_bunny.obj` using fast_obj
 - Main rendering loop with SDL3
-- Ray tracing and light sampling implementation
-- Frame-by-frame spectral accumulation
+- Stratified jittered primary ray generation
+- Ray tracing with Embree BVH acceleration
+- Per-sample spectral to XYZ conversion and accumulation
+- Keyboard-based camera controls (WASD + QE for movement, arrow keys for rotation)
+- Frame accumulation that resets when camera moves
+
+**src/kingfisher_core.h**: Core types and utilities
+- Basic types (u8, u32, f32, etc.)
+- Ray and HitRecord structures
+- Random number generation (xoshiro128+ RNG with `Rng_f32()`)
+- Math utilities (min, max, clamp)
+
+**src/vec3.h** / **src/vec3.c**: Vector math library
+- 3D vector operations (add, sub, mul, dot, cross, normalize)
+- Pitch/yaw conversion utilities
+
+**src/camera.h** / **src/camera.c**: Camera system
+- `CameraControls`: Position, pitch, yaw, and speeds
+- `CameraBasis`: Position and orientation vectors (forward, du, dv)
+- `PerspectivePinhole`: Pinhole camera with configurable FOV
+- `PerspectiveOrtho`: Orthographic camera (currently unused)
+- Primary ray generation functions
+- Keyboard input handling
+
+**src/colorspace.h**: Spectral to RGB conversion
+- `spectral_to_xyz()`: Converts wavelength to CIE XYZ using lookup tables
+- `normalize_xyz()`: Normalizes XYZ using sRGB reference white/black points
+- `normalized_xyz_to_linear_rgb()`: XYZ to linear RGB matrix transform
+- `linear_rgb_to_srgb()`: Gamma correction to sRGB
+
+**src/bvh.h** / **src/bvh.c**: BVH acceleration structures
+- `EmbreeBvh`: Wrapper around Embree's ray tracing
+- `embree_bvh_build()`: Builds BVH from triangle array
+- `embree_bvh_intersect()`: Ray-triangle intersection using Embree
+
+**src/aabb.h** / **src/aabb.c**: Axis-aligned bounding boxes
+- AABB structure and ray intersection
+- Used for BVH construction
 
 **src/cie_xyz_lut.c**: Generated lookup tables for spectral to XYZ conversion
 - Contains `cie_xyz_x[256]`, `cie_xyz_y[256]`, `cie_xyz_z[256]` arrays
@@ -63,22 +96,34 @@ The renderer uses a unique spectral approach:
 
 ### Key Concepts
 
-**Materials**: Currently supports two types:
-- `MATERIAL_DIFFUSE`: Lambertian reflector
-- `MATERIAL_EMISSIVE`: Light source with single-wavelength emission
+**Stratified Sampling**: The renderer divides each pixel into an N×N grid of strata (currently 2×2 = 4 samples per pixel). Within each stratum, a random jittered position is sampled. This provides better antialiasing than pure random sampling with the same number of samples, as it guarantees more even coverage across the pixel.
 
-**Camera**: The renderer implements two camera models (`CameraOrtho` and `CameraPinhole`). Primary rays are generated using normalized device coordinates in [-1, 1].
+**Camera**: The renderer implements two camera models:
+- `PerspectivePinhole`: Perspective camera with configurable horizontal FOV (currently used)
+- `PerspectiveOrtho`: Orthographic camera (defined but not currently used)
 
-**Color Science**: The spectral to RGB conversion follows the CIE standard workflow. Reference values for sRGB black/white points are hardcoded in `normalize_xyz()`. The XYZ to RGB matrix is the standard sRGB transformation matrix.
+Primary rays are generated using normalized device coordinates in [-1, 1] with jittered offsets.
+
+**Color Science**: The spectral to RGB conversion follows the CIE standard workflow. Each wavelength+power sample is immediately converted to XYZ and accumulated. Reference values for sRGB black/white points are hardcoded in `normalize_xyz()`. The XYZ to RGB matrix is the standard sRGB transformation matrix.
+
+**BVH Acceleration**: The renderer uses Intel's Embree library for high-performance ray-triangle intersection. The BVH is built once at startup from the loaded mesh geometry.
 
 ## Dependencies
 
 - **SDL3**: For window management and rendering. Debug libraries are in `ext/SDL/debug/`, headers in `ext/SDL/SDL3/`.
-- **xoshiro128+**: Fast PRNG implementation for Monte Carlo sampling (reference implementation in `ext/xoshiro128plus.c`, but actual implementation is inline in kingfisher.h using MSVC's `_rotl` intrinsic).
+- **Embree 4.4.0**: Intel's high-performance ray tracing library. Libraries in `ext/embree-4.4.0/lib/`, headers in `ext/embree-4.4.0/include/`.
+- **fast_obj**: Single-header OBJ mesh loader. Header at `ext/fast_obj.h`.
+- **xoshiro128+**: Fast PRNG implementation for Monte Carlo sampling. Implementation in `src/kingfisher_core.h` using MSVC's `_rotl` intrinsic.
 
 ## Development Notes
 
-- The renderer currently hardcodes light source at sphere index 4 in the scene (see `main.c:214`).
-- Camera animates in a circular path around the scene origin.
-- The rendering uses single-sample-per-pixel with direct light sampling only (no path tracing bounces yet).
+- The renderer currently renders a simple shaded view of the Stanford bunny with hardcoded wavelength (120) and power (40.0f) for hit surfaces (see `main.c:304-305`).
+- Camera is controlled via keyboard:
+  - **WASD**: Move forward/left/backward/right
+  - **Q/E**: Move down/up
+  - **Arrow keys**: Rotate camera (pitch and yaw)
+- Rendering uses stratified jittered sampling (configurable via `sqrt_spp`, currently 2×2 = 4 samples per pixel).
+- Sample accumulation continues across frames and automatically resets when the camera moves.
 - Wavelength storage uses a compressed 8-bit format: actual wavelength in nm = `stored_wavelength * 2 + 360`.
+- The material system (`MATERIAL_DIFFUSE`, `MATERIAL_EMISSIVE`) is defined but currently disabled (see `main.c:45-104`).
+- Direct light sampling code exists but is commented out (see `main.c:320-362`).

@@ -168,14 +168,10 @@ int main(int argc, char *argv[]) {
   //Bvh bvh;
   //bvh_build_from_embree_bvh(&build_bvh, &bvh);
 
-  f32 *powers = malloc(width * height * sizeof(f32));
-  u8 *wavelengths = malloc(width * height);
-
   // Accumulation buffer
   vec3 *xyz = malloc(width * height * sizeof(vec3));
   memset(xyz, 0, width * height * sizeof(vec3));
 
-  // Sample accumulation counter
   u32 sample_count = 0;
 
   u64 last_time_ns = SDL_GetTicksNS();
@@ -239,53 +235,71 @@ int main(int argc, char *argv[]) {
 
     camera_prev = camera;
 
-    memset(powers, 0, width * height * sizeof(f32));
-    memset(wavelengths, 0, width * height);
-
     // Calculate camera basis from camera controls
     CameraBasis basis;
     camera_controls_to_basis(&camera, &basis);
 
-    // Trace our rays and save the power and wavelengths
+    // Trace our rays and accumulate XYZ directly
     for (i32 y = 0; y < height; y++) {
       for (i32 x = 0; x < width; x++) {
         i32 i = y * width + x;
 
-        // In range [-1, 1]
-        f32 u = 2.0f * ((f32)x) / width - 1.0f;
-        f32 v = 2.0f * ((f32)y) / height - 1.0f;
+        // pixel dimensions in range [-1, 1]
+        f32 pixel_width = 2.0f / width;
+        f32 pixel_height = 2.0f / height;
 
-        Ray ray;
-        //{
-        //  PerspectiveOrtho ortho = {
-        //    .width = width / 80.0f,
-        //    .height = height / 80.0f,
-        //    .near = 1.0e-3f,
-        //    .far = 1.0e5f,
-        //  };
-        //  generate_primary_ray_ortho(&basis, &ortho, &ray, u, v);
-        //}
-        {
-          PerspectivePinhole pinhole = {
-            .fov_radians = 0.5f * PI,
-            .inv_aspect_ratio = ((f32)height) / width,
-            .near = 1.0e-3f,
-            .far = 1.0e5f,
-          };
+        // Base pixel position (bottom-left corner of pixel)
+        f32 base_u = 2.0f * ((f32)x) / width - 1.0f;
+        f32 base_v = 2.0f * ((f32)y) / height - 1.0f;
 
-          generate_primary_ray_pinhole(&basis, &pinhole, &ray, u, v);
+        // Stratified jittered sampling: divide pixel into 2 x 2 grid
+        u32 strat_size = 2;
+        for (u32 sy = 0; sy < strat_size; sy++) {
+          for (u32 sx = 0; sx < strat_size; sx++) {
+            // Jittered position within this stratum
+            f32 jitter_x = Rng_f32(&rng);  // Random in [0, 1)
+            f32 jitter_y = Rng_f32(&rng);  // Random in [0, 1)
+
+            // Compute jittered sample position in normalized device coordinates
+            f32 u = base_u + pixel_width * (sx + jitter_x) / strat_size;
+            f32 v = base_v + pixel_height * (sy + jitter_y) / strat_size;
+
+            Ray ray;
+            //{
+            //  PerspectiveOrtho ortho = {
+            //    .width = width / 80.0f,
+            //    .height = height / 80.0f,
+            //    .near = 1.0e-3f,
+            //    .far = 1.0e5f,
+            //  };
+            //  generate_primary_ray_ortho(&basis, &ortho, &ray, u, v);
+            //}
+            {
+              PerspectivePinhole pinhole = {
+                .fov_radians = 0.5f * PI,
+                .inv_aspect_ratio = ((f32)height) / width,
+                .near = 1.0e-3f,
+                .far = 1.0e5f,
+              };
+
+              generate_primary_ray_pinhole(&basis, &pinhole, &ray, u, v);
+            }
+
+            HitRecord rec;
+            embree_bvh_intersect(&build_bvh, &ray, bunny_triangles, &rec);
+
+            if (rec.t == F32_NO_HIT) {
+              continue;
+            }
+
+            // Convert wavelength+power to XYZ and accumulate directly
+            f32 power = 40.0f;
+            u8 wavelength = 120;
+
+            vec3 s = spectral_to_xyz(wavelength);
+            xyz[i] = vec3_add(xyz[i], vec3_smul(power, s));
+          }
         }
-
-        HitRecord rec;
-        embree_bvh_intersect(&build_bvh, &ray, bunny_triangles, &rec); 
-
-        if (rec.t == F32_NO_HIT) {
-          powers[i] = 0.0f;
-          continue;
-        }
-
-        powers[i] = 40.0f;
-        wavelengths[i] = 120;
 
 #if 0
         Material mat = scene.materials[hit.idx];
@@ -341,18 +355,8 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // Convert the wavelength+power samples to XYZ and accumulate.
-    for (i32 y = 0; y < height; y++) {
-      for (i32 x = 0; x < width; x++) {
-        i32 i = y * width + x;
-
-        vec3 s = spectral_to_xyz(wavelengths[i]);
-        xyz[i] = vec3_add(xyz[i], vec3_smul(powers[i], s));
-      }
-    }
-
-    // Increment sample count after accumulating this frame
-    sample_count++;
+    // Increment sample count by total samples per pixel for this frame
+    sample_count += sqrt_spp * sqrt_spp;
 
     void *buffer;
     int pitch;
