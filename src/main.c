@@ -43,67 +43,6 @@ inline void sample_unit_triangle(f32 u1, f32 u2, f32 *u, f32 *v) {
   *v = u2 * t;
 }
 
-#if 0
-#define IDX_NO_HIT UINT32_MAX
-
-enum MaterialKind {
-  MATERIAL_EMISSIVE,
-  MATERIAL_DIFFUSE,
-};
-
-typedef struct Material {
-  u8 kind;
-  union {
-    // At the moment an emissive material only emits a single wavelength
-    struct {
-      f32 power;
-      u8 wavelength;
-    } emissive;
-  };
-} Material;
-
-typedef struct Scene {
-  i32 triangle_count;
-  Triangle const *triangles;
-  Material const *materials;
-} Scene;
-
-void trace_scene(Ray const *ray, Scene const *scene, HitRecord *hit) {
-  f32 t = F32_NO_HIT;
-  i32 hit_idx = IDX_NO_HIT;
-
-  for (i32 i = 0; i < scene->triangle_count; i++) {
-    f32 tt = ray_triangle_intersect_distance(ray, &scene->triangles[i]);
-    if (tt < t) {
-      t = tt;
-      hit_idx = i;
-    }
-  }
-
-  if (hit_idx == IDX_NO_HIT) {
-    *hit = (HitRecord){
-      .t = F32_NO_HIT,
-      .idx = IDX_NO_HIT,
-    };
-    return;
-  }
-
-  vec3 edge1 = vec3_sub(scene->triangles[hit_idx].v1, scene->triangles[hit_idx].v0);
-  vec3 edge2 = vec3_sub(scene->triangles[hit_idx].v2, scene->triangles[hit_idx].v0);
-  vec3 n = vec3_normalized(vec3_cross(edge1, edge2));
-
-  if (vec3_dot(n, ray->dir) > 0.0f) {
-    n = vec3_smul(-1.0f, n);
-  }
-
-  *hit = (HitRecord){
-    .t = t,
-    .n = n,
-    .idx = hit_idx,
-  };
-}
-#endif
-
 bool read_obj_triangles(char const *filename, Triangle **triangles, u64 *triangle_count) {
   fastObjMesh *mesh = fast_obj_read(filename);
 
@@ -141,17 +80,97 @@ bool read_obj_triangles(char const *filename, Triangle **triangles, u64 *triangl
   return true;
 }
 
+// Thread work data
+typedef struct ThreadWork {
+  u32 y_start;
+  u32 y_end;
+  i32 width;
+  i32 height;
+
+  Triangle *triangles;
+  EmbreeBvh *bvh;
+  CameraBasis *basis;
+
+  vec3 *xyz; // Shared accumulation buffer
+
+  Rng rng; // Thread-local RNG
+
+  // Synchronization
+  SDL_Semaphore *start_sem; // Main signals this to start work
+  SDL_Semaphore *done_sem;  // Thread signals this when work is done
+  bool should_exit;         // Signal thread to exit
+} ThreadWork;
+
+// Worker thread function for ray tracing
+int raytracing_worker(void *data) {
+  ThreadWork *work = (ThreadWork *)data;
+
+  while (true) {
+    // Wait for main thread to signal work is ready
+    SDL_WaitSemaphore(work->start_sem);
+
+    // Check if we should exit
+    if (work->should_exit) {
+      break;
+    }
+
+    // Do the ray tracing work for assigned rows
+    for (u32 y = work->y_start; y < work->y_end; y++) {
+      for (i32 x = 0; x < work->width; x++) {
+        i32 i = y * work->width + x;
+
+        f32 u = 2.0f * ((f32)x + 0.5f) / work->width - 1.0f;
+        f32 v = 2.0f * ((f32)y + 0.5f) / work->height - 1.0f;
+
+        Ray ray;
+        {
+          PerspectivePinhole pinhole = {
+            .fov_radians = 0.5f * PI,
+            .inv_aspect_ratio = ((f32)work->height) / work->width,
+            .near = 1.0e-3f,
+            .far = 1.0e5f,
+          };
+
+          generate_primary_ray_pinhole(work->basis, &pinhole, &ray, u, v);
+        }
+
+        HitRecord rec;
+        embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);
+
+        if (rec.t == F32_NO_HIT) {
+          continue;
+        }
+
+        // Convert wavelength+power to XYZ and accumulate.
+        f32 power = 40.0f;
+        u8 wavelength = 120;
+
+        vec3 s = spectral_to_xyz(wavelength);
+        work->xyz[i] = vec3_add(work->xyz[i], vec3_smul(power, s));
+      }
+    }
+
+    // Signal that this thread is done
+    SDL_SignalSemaphore(work->done_sem);
+  }
+
+  return 0;
+}
+
 int main(int argc, char *argv[]) {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
     return 1;
   }
 
-  int width = 640;
-  int height = 480;
+  int window_width = 1280;
+  int window_height = 960;
+
+  int render_width = 640;
+  int render_height = 480;
 
   SDL_Window *window;
   SDL_Renderer *renderer;
-  if (!SDL_CreateWindowAndRenderer("Kingfisher", width, height, 0, &window, &renderer)) {
+  if (!SDL_CreateWindowAndRenderer("Kingfisher", window_width, window_height, 0, &window, &renderer)) {
     return 1;
   }
 
@@ -161,8 +180,8 @@ int main(int argc, char *argv[]) {
     renderer,
     SDL_PIXELFORMAT_XBGR8888,
     SDL_TEXTUREACCESS_STREAMING,
-    width,
-    height
+    render_width,
+    render_height
   );
 
   u64 bunny_triangle_count;
@@ -178,8 +197,8 @@ int main(int argc, char *argv[]) {
   bvh_build_from_embree_bvh(&build_bvh, &bvh);
 
   // Accumulation buffer
-  vec3 *xyz = malloc(width * height * sizeof(vec3));
-  memset(xyz, 0, width * height * sizeof(vec3));
+  vec3 *xyz = malloc(render_width * render_height * sizeof(vec3));
+  memset(xyz, 0, render_width * render_height * sizeof(vec3));
 
   u32 sample_count = 0;
 
@@ -209,6 +228,44 @@ int main(int argc, char *argv[]) {
   // Previous camera state for tracking movement
   CameraControls camera_prev = camera;
 
+  // Set up multithreading
+  u32 thread_count = SDL_GetNumLogicalCPUCores();
+  if (thread_count == 0) thread_count = 4; // Fallback if detection fails
+
+  SDL_Thread **threads = malloc(thread_count * sizeof(SDL_Thread *));
+  ThreadWork *thread_work = malloc(thread_count * sizeof(ThreadWork));
+
+  printf("Using %u worker threads\n", thread_count);
+
+  // Create threads once and initialize synchronization primitives
+  u32 rows_per_thread = render_height / thread_count;
+  for (u32 t = 0; t < thread_count; t++) {
+    u32 y_start = t * rows_per_thread;
+    u32 y_end = (t == thread_count - 1) ? render_height : (t + 1) * rows_per_thread;
+
+    thread_work[t] = (ThreadWork){
+      .y_start = y_start,
+      .y_end = y_end,
+      .width = render_width,
+      .height = render_height,
+      .triangles = bunny_triangles,
+      .bvh = &build_bvh,
+      .basis = NULL, // Will be updated each frame
+      .xyz = xyz,
+      .start_sem = SDL_CreateSemaphore(0),
+      .done_sem = SDL_CreateSemaphore(0),
+      .should_exit = false,
+    };
+
+    // Seed each thread's RNG with a unique seed
+    Rng_seed(&thread_work[t].rng, 13687844445 + t);
+
+    // Create the thread
+    char thread_name[32];
+    snprintf(thread_name, sizeof(thread_name), "RayWorker%u", t);
+    threads[t] = SDL_CreateThread(raytracing_worker, thread_name, &thread_work[t]);
+  }
+
   u32 done = 0;
   while (!done) {
     u64 time_ns = SDL_GetTicksNS();
@@ -237,7 +294,7 @@ int main(int argc, char *argv[]) {
 
     // Check if camera has moved and reset accumulation if needed
     if (camera_has_moved(&camera, &camera_prev)) {
-      memset(xyz, 0, width * height * sizeof(vec3));
+      memset(xyz, 0, render_width * render_height * sizeof(vec3));
       sample_count = 0;
     }
 
@@ -247,102 +304,19 @@ int main(int argc, char *argv[]) {
     CameraBasis basis;
     camera_controls_to_basis(&camera, &basis);
 
-    // Trace our rays and accumulate XYZ directly
-    for (i32 y = 0; y < height; y++) {
-      for (i32 x = 0; x < width; x++) {
-        i32 i = y * width + x;
+    // Update camera basis for all threads
+    for (u32 t = 0; t < thread_count; t++) {
+      thread_work[t].basis = &basis;
+    }
 
-        f32 u = 2.0f * ((f32)x + 0.5f) / width - 1.0f;
-        f32 v = 2.0f * ((f32)y + 0.5f) / height - 1.0f;
+    // Signal all threads to start work
+    for (u32 t = 0; t < thread_count; t++) {
+      SDL_SignalSemaphore(thread_work[t].start_sem);
+    }
 
-        Ray ray;
-        //{
-        //  PerspectiveOrtho ortho = {
-        //    .width = width / 80.0f,
-        //    .height = height / 80.0f,
-        //    .near = 1.0e-3f,
-        //    .far = 1.0e5f,
-        //  };
-        //  generate_primary_ray_ortho(&basis, &ortho, &ray, u, v);
-        //}
-        {
-          PerspectivePinhole pinhole = {
-            .fov_radians = 0.5f * PI,
-            .inv_aspect_ratio = ((f32)height) / width,
-            .near = 1.0e-3f,
-            .far = 1.0e5f,
-          };
-
-          generate_primary_ray_pinhole(&basis, &pinhole, &ray, u, v);
-        }
-
-        HitRecord rec;
-        embree_bvh_intersect(&build_bvh, &ray, bunny_triangles, &rec);
-        //bvh_intersect(&bvh, &ray, bunny_triangles, &rec);
-
-        if (rec.t == F32_NO_HIT) {
-          continue;
-        }
-
-        // Convert wavelength+power to XYZ and accumulate directly
-        f32 power = 40.0f;
-        u8 wavelength = 120;
-
-        vec3 s = spectral_to_xyz(wavelength);
-        xyz[i] = vec3_add(xyz[i], vec3_smul(power, s));
-
-#if 0
-        Material mat = scene.materials[hit.idx];
-
-        if (mat.kind == MATERIAL_EMISSIVE) {
-          powers[i] = mat.emissive.power;
-          wavelengths[i] = mat.emissive.wavelength;
-          continue;
-        }
-
-        // The triangle at index 0 is hardcoded emissive for now
-        u32 light_idx = 0;
-
-        Ray light_ray;
-        {
-          vec3 p = vec3_add(ray.origin, vec3_smul(hit.t, ray.dir));
-
-          f32 tu, tv;
-          sample_unit_triangle(Rng_f32(&rng), Rng_f32(&rng), &tu, &tv);
-
-          vec3 lp = vec3_add(
-            triangles[0].v0,
-            vec3_add(
-              vec3_smul(tu, vec3_sub(triangles[0].v1, triangles[0].v0)),
-              vec3_smul(tv, vec3_sub(triangles[0].v2, triangles[0].v0))
-            )
-          );
-
-          vec3 origin = vec3_add(p, vec3_smul(0.001f, hit.n)); 
-
-          light_ray = (Ray){
-            .origin = origin,
-            .dir = vec3_normalized(vec3_sub(lp, origin)),
-            .min_t = 1.0e-3f,
-            .max_t = 1.0e5f,
-          };
-        }
-
-        if (vec3_dot(hit.n, light_ray.dir) < 0.0f) {
-          continue;
-        }
-
-        HitRecord light_hit;
-        trace_scene(&light_ray, &scene, &light_hit);
-
-        if (light_hit.idx != light_idx) {
-          continue;
-        }
-
-        powers[i] = scene.materials[light_idx].emissive.power * clamp(0.0f, 1.0f, vec3_dot(hit.n, light_ray.dir));
-        wavelengths[i] = scene.materials[light_idx].emissive.wavelength;
-#endif
-      }
+    // Wait for all threads to complete (synchronization point)
+    for (u32 t = 0; t < thread_count; t++) {
+      SDL_WaitSemaphore(thread_work[t].done_sem);
     }
 
     sample_count += 1;
@@ -352,9 +326,9 @@ int main(int argc, char *argv[]) {
     SDL_LockTexture(screen, NULL, &buffer, &pitch);
     u8 *pixels = buffer;
 
-    for (i32 y = 0; y < height; y++) {
-      for (i32 x = 0; x < width; x++) {
-        i32 i = y * width + x;
+    for (i32 y = 0; y < render_height; y++) {
+      for (i32 x = 0; x < render_width; x++) {
+        i32 i = y * render_width + x;
 
         // Average accumulated XYZ values
         f32 inv_count = 1.0f / (f32)sample_count;
@@ -364,9 +338,9 @@ int main(int argc, char *argv[]) {
         vec3 rgb = normalized_xyz_to_linear_rgb(nxyz);
         vec3 srgb = linear_rgb_to_srgb(rgb);
 
-        pixels[(height - 1 - y) * pitch + x * 4 + 0] = (u8)(srgb.r * 255.0f);
-        pixels[(height - 1 - y) * pitch + x * 4 + 1] = (u8)(srgb.g * 255.0f);
-        pixels[(height - 1 - y) * pitch + x * 4 + 2] = (u8)(srgb.b * 255.0f);
+        pixels[(render_height - 1 - y) * pitch + x * 4 + 0] = (u8)(srgb.r * 255.0f);
+        pixels[(render_height - 1 - y) * pitch + x * 4 + 1] = (u8)(srgb.g * 255.0f);
+        pixels[(render_height - 1 - y) * pitch + x * 4 + 2] = (u8)(srgb.b * 255.0f);
       }
     }
 
@@ -397,6 +371,28 @@ int main(int argc, char *argv[]) {
   }
 
 exit:
+  // Signal all threads to exit
+  for (u32 t = 0; t < thread_count; t++) {
+    thread_work[t].should_exit = true;
+    SDL_SignalSemaphore(thread_work[t].start_sem);
+  }
+
+  // Wait for all threads to finish
+  for (u32 t = 0; t < thread_count; t++) {
+    SDL_WaitThread(threads[t], NULL);
+  }
+
+  // Clean up semaphores
+  for (u32 t = 0; t < thread_count; t++) {
+    SDL_DestroySemaphore(thread_work[t].start_sem);
+    SDL_DestroySemaphore(thread_work[t].done_sem);
+  }
+
+  free(threads);
+  free(thread_work);
+  free(xyz);
+  free(bunny_triangles);
+
   SDL_DestroyWindow(window);
   SDL_DestroyRenderer(renderer);
   SDL_Quit();
