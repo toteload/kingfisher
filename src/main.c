@@ -16,6 +16,8 @@
 #include <fast_obj.h>
 #pragma warning(pop)
 
+#include <ufbx.h>
+
 // Spectral power distribution
 typedef struct Spd_8 {
   u8 wavelengths[8];
@@ -183,6 +185,29 @@ int main(int argc, char *argv[]) {
     render_width,
     render_height
   );
+
+#if 0
+  {
+    ufbx_error err;
+    ufbx_scene *scene = ufbx_load_file("data/pica-pica-floor-junk-clutter-01/Floor_Junk_Cluster_01.fbx", NULL, &err);
+    if (!scene) {
+      fprintf(stderr, "Failed to load: %s\n", err.description.data);
+      return 1;
+    }
+
+    for (u32 i = 0; i < scene->nodes.count; i++) {
+      ufbx_node *node = scene->nodes.data[i];
+      if (node->is_root) continue;
+
+      printf("object: %s\n", node->name.data);
+      if (node->mesh) {
+        printf("-> mesh with %zu faces\n", node->mesh->faces.count);
+      }
+    }
+
+    ufbx_free_scene(scene);
+  }
+#endif
 
   u64 bunny_triangle_count;
   Triangle *bunny_triangles;

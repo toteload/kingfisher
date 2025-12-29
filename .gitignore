@@ -1,7 +1,14 @@
-*.dll
+.ninja/
+out/
+__pycache__/
 .vs/
+
+build.ninja
+
 ext/embree-4.4.0/lib/*
 ext/embree-4.4.0/include/**/*.isph
+
+*.dll
 *.obj
 *.exe
 *.ilk
