@@ -69,6 +69,7 @@ def create_build_ninja():
             'aabb.c',
             'camera.c',
             'ui.c',
+            'worker.c',
         ]],
         join('ext', 'ufbx.c'),
     ]
@@ -83,7 +84,7 @@ def create_build_ninja():
             rule      = 'compile_c',
             inputs    = f,
             variables = {
-                'cflags': '/O2', # if not f.endswith('main.c') else '',
+                'cflags': '/O2' if not f.endswith('main.c') else '',
             },
             )
 
@@ -92,7 +93,12 @@ def create_build_ninja():
         rule    = 'build_binary',
         inputs  = [outd(f'{f}.obj') for f in inputs],
         variables = {
-            'libs': ['ext/SDL/debug/SDL3.lib', 'ext/embree-4.4.0/lib/embree4.lib', 'ext/embree-4.4.0/lib/tbb12.lib'],
+            'libs': [
+                'ext/SDL/debug/SDL3.lib', 
+                'ext/embree-4.4.0/lib/embree4.lib',
+                'ext/embree-4.4.0/lib/tbb12.lib',
+                'kernel32.lib', # IsDebuggerPresent
+                ],
             'cflags': '/Zi',
             'lflags': '/SUBSYSTEM:CONSOLE',
         },

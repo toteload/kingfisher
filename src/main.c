@@ -3,6 +3,7 @@
 #include "colorspace.h"
 #include "bvh.h"
 #include "ui.h"
+#include "worker.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -23,27 +24,6 @@ typedef struct Spd_8 {
   u8 wavelengths[8];
   f32 powers[8];
 } Spd_8;
-
-// Sampling
-// -
-
-inline vec3 sample_unit_sphere(f32 u1, f32 u2) {
-  // Code from PBRT `UniformSampleSphere` page 664
-  f32 z = 1.0f - 2.0f * u1;
-  f32 r = sqrtf(max(0.0f, 1.0f - z * z));
-  f32 phi = 2.0f * PI * u2;
-  f32 x = r * cosf(phi);
-  f32 y = r * sinf(phi);
-  return (vec3){ x, y, z, };
-}
-
-// u1 and u2 must be in range [0, 1).
-// Returns barycentric coordinates.
-inline void sample_unit_triangle(f32 u1, f32 u2, f32 *u, f32 *v) {
-  f32 t = sqrtf(u1);
-  *u = 1.0f - t;
-  *v = u2 * t;
-}
 
 bool read_obj_triangles(char const *filename, Triangle **triangles, u64 *triangle_count) {
   fastObjMesh *mesh = fast_obj_read(filename);
@@ -82,84 +62,82 @@ bool read_obj_triangles(char const *filename, Triangle **triangles, u64 *triangl
   return true;
 }
 
-// Thread work data
-typedef struct ThreadWork {
-  u32 y_start;
-  u32 y_end;
-  i32 width;
-  i32 height;
+bool read_fbx_triangles(char const *filename, Triangle **triangles, u64 *triangle_count) {
+  ufbx_error err;
+  ufbx_scene *scene = ufbx_load_file(filename, NULL, &err);
 
-  Triangle *triangles;
-  EmbreeBvh *bvh;
-  CameraBasis *basis;
-
-  vec3 *xyz; // Shared accumulation buffer
-
-  Rng rng; // Thread-local RNG
-
-  // Synchronization
-  SDL_Semaphore *start_sem; // Main signals this to start work
-  SDL_Semaphore *done_sem;  // Thread signals this when work is done
-  bool should_exit;         // Signal thread to exit
-} ThreadWork;
-
-// Worker thread function for ray tracing
-int raytracing_worker(void *data) {
-  ThreadWork *work = (ThreadWork *)data;
-
-  while (true) {
-    // Wait for main thread to signal work is ready
-    SDL_WaitSemaphore(work->start_sem);
-
-    // Check if we should exit
-    if (work->should_exit) {
-      break;
-    }
-
-    // Do the ray tracing work for assigned rows
-    for (u32 y = work->y_start; y < work->y_end; y++) {
-      for (i32 x = 0; x < work->width; x++) {
-        i32 i = y * work->width + x;
-
-        f32 u = 2.0f * ((f32)x + 0.5f) / work->width - 1.0f;
-        f32 v = 2.0f * ((f32)y + 0.5f) / work->height - 1.0f;
-
-        Ray ray;
-        {
-          PerspectivePinhole pinhole = {
-            .fov_radians = 0.5f * PI,
-            .inv_aspect_ratio = ((f32)work->height) / work->width,
-            .near = 1.0e-3f,
-            .far = 1.0e5f,
-          };
-
-          generate_primary_ray_pinhole(work->basis, &pinhole, &ray, u, v);
-        }
-
-        HitRecord rec;
-        embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);
-
-        if (rec.t == F32_NO_HIT) {
-          continue;
-        }
-
-        // Convert wavelength+power to XYZ and accumulate.
-        f32 power = 40.0f;
-        u8 wavelength = 120;
-
-        vec3 s = spectral_to_xyz(wavelength);
-        work->xyz[i] = vec3_add(work->xyz[i], vec3_smul(power, s));
-      }
-    }
-
-    // Signal that this thread is done
-    SDL_SignalSemaphore(work->done_sem);
+  if (!scene) {
+    fprintf(stderr, "Failed to load FBX: %s\n", err.description.data);
+    return false;
   }
 
-  return 0;
+  // First pass: count total triangles
+  u64 total_triangle_count = 0;
+  for (u64 node_idx = 0; node_idx < scene->nodes.count; node_idx++) {
+    ufbx_node *node = scene->nodes.data[node_idx];
+    if (!node->mesh) continue;
+
+    ufbx_mesh *mesh = node->mesh;
+    for (u64 face_idx = 0; face_idx < mesh->faces.count; face_idx++) {
+      ufbx_face face = mesh->faces.data[face_idx];
+      // Assert all faces are triangles
+      assert(face.num_indices == 3);
+    }
+
+    total_triangle_count += mesh->faces.count;
+  }
+
+  // Allocate triangle array
+  Triangle *tris = malloc(total_triangle_count * sizeof(Triangle));
+  u64 tri_idx = 0;
+
+  // Second pass: extract and transform triangles
+  for (u64 node_idx = 0; node_idx < scene->nodes.count; node_idx++) {
+    ufbx_node *node = scene->nodes.data[node_idx];
+    if (!node->mesh) continue;
+
+    ufbx_mesh *mesh = node->mesh;
+
+    // Get the node's local transform matrix
+    ufbx_matrix node_to_world = node->node_to_world;
+
+    for (u64 face_idx = 0; face_idx < mesh->faces.count; face_idx++) {
+      ufbx_face face = mesh->faces.data[face_idx];
+
+      // Extract the three vertex indices for this triangle
+      for (u32 vert_idx = 0; vert_idx < 3; vert_idx++) {
+        u32 index = mesh->vertex_indices.data[face.index_begin + vert_idx];
+        ufbx_vec3 pos = mesh->vertices.data[index];
+
+        // Transform vertex by node's local transform
+        ufbx_vec3 transformed = ufbx_transform_position(&node_to_world, pos);
+
+        tris[tri_idx].p[vert_idx] = (vec3){
+          (f32)transformed.x,
+          (f32)transformed.y,
+          (f32)transformed.z,
+        };
+      }
+
+      tri_idx++;
+    }
+  }
+
+  *triangle_count = total_triangle_count;
+  *triangles = tris;
+
+  ufbx_free_scene(scene);
+
+  return true;
 }
 
+int IsDebuggerPresent();
+
 int main(int argc, char *argv[]) {
+  if (IsDebuggerPresent()) {
+    __debugbreak();
+  }
+
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
     return 1;
   }
@@ -189,7 +167,7 @@ int main(int argc, char *argv[]) {
 #if 0
   {
     ufbx_error err;
-    ufbx_scene *scene = ufbx_load_file("data/pica-pica-floor-junk-clutter-01/Floor_Junk_Cluster_01.fbx", NULL, &err);
+    ufbx_scene *scene = ufbx_load_file("data/pica-pica-mini-diorama-01/Mini_Diorama_01.fbx", NULL, &err);
     if (!scene) {
       fprintf(stderr, "Failed to load: %s\n", err.description.data);
       return 1;
@@ -208,15 +186,22 @@ int main(int argc, char *argv[]) {
     ufbx_free_scene(scene);
   }
 #endif
-
+  u64 triangle_count;
+  Triangle *triangles;
+  if (!read_fbx_triangles("data/pica-pica-mini-diorama-01/Mini_Diorama_01.fbx", &triangles, &triangle_count)) {
+    printf("Failed to load .fbx file.\n");
+    return 1;
+  }
+#if 0
   u64 bunny_triangle_count;
   Triangle *bunny_triangles;
   if (!read_obj_triangles("data/stanford_bunny.obj", &bunny_triangles, &bunny_triangle_count)) {
     printf("Failed to load Stanford bunny.\n");
     return 1;
   }
+#endif
 
-  EmbreeBvh build_bvh = embree_bvh_build(bunny_triangles, bunny_triangle_count);
+  EmbreeBvh build_bvh = embree_bvh_build(triangles, triangle_count);
 
   Bvh bvh;
   bvh_build_from_embree_bvh(&build_bvh, &bvh);
@@ -245,7 +230,7 @@ int main(int argc, char *argv[]) {
       .position = position,
       .pitch = pitch,
       .yaw = yaw,
-      .move_speed = 3.0f,
+      .move_speed = 18.0f,
       .rot_speed = 2.0f,
     };
   }
@@ -273,7 +258,7 @@ int main(int argc, char *argv[]) {
       .y_end = y_end,
       .width = render_width,
       .height = render_height,
-      .triangles = bunny_triangles,
+      .triangles = triangles,
       .bvh = &build_bvh,
       .basis = NULL, // Will be updated each frame
       .xyz = xyz,
@@ -288,7 +273,7 @@ int main(int argc, char *argv[]) {
     // Create the thread
     char thread_name[32];
     snprintf(thread_name, sizeof(thread_name), "RayWorker%u", t);
-    threads[t] = SDL_CreateThread(raytracing_worker, thread_name, &thread_work[t]);
+    threads[t] = SDL_CreateThread(worker, thread_name, &thread_work[t]);
   }
 
   u32 done = 0;
@@ -416,7 +401,7 @@ exit:
   free(threads);
   free(thread_work);
   free(xyz);
-  free(bunny_triangles);
+  free(triangles);
 
   SDL_DestroyWindow(window);
   SDL_DestroyRenderer(renderer);
