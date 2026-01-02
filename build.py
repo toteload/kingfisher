@@ -84,7 +84,7 @@ def create_build_ninja():
             rule      = 'compile_c',
             inputs    = f,
             variables = {
-                'cflags': '/O2' if not f.endswith('main.c') else '',
+                'cflags': '/O2',
             },
             )
 

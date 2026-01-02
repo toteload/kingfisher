@@ -204,13 +204,18 @@ int main(int argc, char *argv[]) {
   int window_width = 1280;
   int window_height = 960;
 
-  int render_width = 640;
-  int render_height = 480;
+  int render_width = window_width;//640;
+  int render_height = window_height;//480;
 
   SDL_Window *window;
   SDL_Renderer *renderer;
   if (!SDL_CreateWindowAndRenderer("Kingfisher", window_width, window_height, 0, &window, &renderer)) {
     return 1;
+  }
+
+  {
+    bool ok = SDL_SetRenderVSync(renderer, 1);
+    printf("vsync: %s\n", ok ? "yes" : "no");
   }
 
   UiState *ui = ui_init(window, renderer);
@@ -299,6 +304,11 @@ int main(int argc, char *argv[]) {
 
   SDL_Thread **threads = malloc(thread_count * sizeof(SDL_Thread *));
   ThreadWork *thread_work = malloc(thread_count * sizeof(ThreadWork));
+  bool *thread_done = malloc(thread_count * sizeof(bool));
+
+  for (u32 i = 0; i < thread_count; i++) {
+    thread_done[i] = true;
+  }
 
   printf("Using %u worker threads\n", thread_count);
 
@@ -359,65 +369,77 @@ int main(int argc, char *argv[]) {
     const bool *keys = SDL_GetKeyboardState(NULL);
     update_camera_from_input(&camera, keys, dt);
 
-    // Check if camera has moved and reset accumulation if needed
-    if (camera_has_moved(&camera, &camera_prev)) {
-      memset(xyz, 0, render_width * render_height * sizeof(vec3));
-      memset(normals, 0, render_width * render_height * sizeof(vec3));
-      sample_count = 0;
-    }
-
-    camera_prev = camera;
-
-    // Calculate camera basis from camera controls
-    camera_controls_to_basis(&camera, basis);
-
-    memset(xyz, 0, render_width * render_height * sizeof(vec3));
-
-    for (u32 i = 0; i < thread_count; i++) {
-      thread_work[i].buffer = app.selected_buffer;
-    }
-
-    // Signal all threads to start work
-    for (u32 t = 0; t < thread_count; t++) {
-      SDL_SignalSemaphore(thread_work[t].start_sem);
-    }
-
-    // Wait for all threads to complete (synchronization point)
-    for (u32 t = 0; t < thread_count; t++) {
-      SDL_WaitSemaphore(thread_work[t].done_sem);
-    }
-
-    void *buffer;
-    int pitch;
-    SDL_LockTexture(screen, NULL, &buffer, &pitch);
+    bool all_render_threads_done = true;
     {
-      if (app.selected_buffer == BUFFER_LIGHT) {
-        // Accumulation
-        {
-          f32 s;
-          if (sample_count == 0) {
-            s = 1.0f;
-          } else {
-            s = (1.0f / (f32)sample_count);
+      for (u32 i = 0; i < thread_count; i++) {
+        if (!thread_done[i]) {
+          thread_done[i] = SDL_TryWaitSemaphore(thread_work[i].done_sem);
+        }
+      }
+
+      for (u32 i = 0; i < thread_count; i++) {
+        all_render_threads_done &= thread_done[i];
+      }
+    }
+
+    if (all_render_threads_done) {
+      // Check if camera has moved and reset accumulation if needed
+      if (camera_has_moved(&camera, &camera_prev)) {
+        memset(normals, 0, render_width * render_height * sizeof(vec3));
+        sample_count = 0;
+      }
+
+      camera_prev = camera;
+
+      void *buffer;
+      int pitch;
+      SDL_LockTexture(screen, NULL, &buffer, &pitch);
+      {
+        if (app.selected_buffer == BUFFER_LIGHT) {
+          // Accumulation
+          {
+            f32 s;
+            if (sample_count == 0) {
+              s = 1.0f;
+            } else {
+              s = (1.0f / (f32)sample_count);
+            }
+
+            for (i32 i = 0; i < render_width * render_height; i++) {
+              acc_xyz[i] = vec3_add(
+                vec3_smul(1.0f - s, acc_xyz[i]),
+                vec3_smul(s, xyz[i]));
+            }
+
+            sample_count += 1;
           }
 
-          for (i32 i = 0; i < render_width * render_height; i++) {
-            acc_xyz[i] = vec3_add(
-              vec3_smul(1.0f - s, acc_xyz[i]),
-              vec3_smul(s, xyz[i]));
-          }
-
-          sample_count += 1;
+          xyz_to_srgb_pixels(render_width, render_height, acc_xyz, buffer, pitch);
         }
 
-        xyz_to_srgb_pixels(render_width, render_height, acc_xyz, buffer, pitch);
+        if (app.selected_buffer == BUFFER_NORMALS) {
+          normals_to_srgb_pixels(render_width, render_height, normals, buffer, pitch);
+        }
+      }
+      SDL_UnlockTexture(screen);
+
+      camera_controls_to_basis(&camera, basis);
+
+      memset(xyz, 0, render_width * render_height * sizeof(vec3));
+
+      for (u32 i = 0; i < thread_count; i++) {
+        thread_work[i].buffer = app.selected_buffer;
       }
 
-      if (app.selected_buffer == BUFFER_NORMALS) {
-        normals_to_srgb_pixels(render_width, render_height, normals, buffer, pitch);
+      // Signal all threads to start work
+      for (u32 t = 0; t < thread_count; t++) {
+        SDL_SignalSemaphore(thread_work[t].start_sem);
+      }
+
+      for (u32 i = 0; i < thread_count; i++) {
+        thread_done[i] = false;
       }
     }
-    SDL_UnlockTexture(screen);
 
     SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0x00);
     SDL_RenderClear(renderer);
@@ -426,8 +448,8 @@ int main(int argc, char *argv[]) {
       renderer,
       screen,
       NULL,
-      //NULL
-      &(SDL_FRect){.x = 640, .y = 480, .w = 640, .h = 480}
+      NULL
+      //&(SDL_FRect){.x = 640, .y = 480, .w = 640, .h = 480}
       );
 
     draw_debug_ui(ui->ctx, &app);
