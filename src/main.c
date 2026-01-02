@@ -131,10 +131,69 @@ bool read_fbx_triangles(char const *filename, Triangle **triangles, u64 *triangl
   return true;
 }
 
+void xyz_to_srgb_pixels(i32 width, i32 height, vec3 const *xyz, u8 *pixels, i32 pitch) {
+  for (i32 y = 0; y < height; y++) {
+    for (i32 x = 0; x < width; x++) {
+      i32 i = y * width + x;
+
+      vec3 nxyz = normalize_xyz(xyz[i]);
+      vec3 rgb = normalized_xyz_to_linear_rgb(nxyz);
+      vec3 srgb = linear_rgb_to_srgb(rgb);
+
+      pixels[(height - 1 - y) * pitch + x * 4 + 0] = (u8)(srgb.r * 255.0f);
+      pixels[(height - 1 - y) * pitch + x * 4 + 1] = (u8)(srgb.g * 255.0f);
+      pixels[(height - 1 - y) * pitch + x * 4 + 2] = (u8)(srgb.b * 255.0f);
+    }
+  }
+}
+
+void normals_to_srgb_pixels(i32 width, i32 height, vec3 const *normals, u8 *pixels, i32 pitch) {
+  for (i32 y = 0; y < height; y++) {
+    for (i32 x = 0; x < width; x++) {
+      i32 i = y * width + x;
+
+      vec3 rgb = vec3_smul(255.0f, normals[i]);
+      vec3 srgb = linear_rgb_to_srgb(rgb);
+
+      pixels[(height - 1 - y) * pitch + x * 4 + 0] = (u8)(srgb.r * 255.0f);
+      pixels[(height - 1 - y) * pitch + x * 4 + 1] = (u8)(srgb.g * 255.0f);
+      pixels[(height - 1 - y) * pitch + x * 4 + 2] = (u8)(srgb.b * 255.0f);
+    }
+  }
+}
+
 int IsDebuggerPresent();
+
+typedef struct AppState {
+  struct {
+    u32 selected;
+    PerspectivePinhole pinhole;
+    PerspectiveOrtho ortho;
+  } perspective;
+
+  CameraControls camera;
+
+  u32 selected_buffer;
+} AppState;
+
+void draw_debug_ui(struct nk_context *ctx, AppState *app) {
+  if (nk_begin(ctx, "Debug info", nk_rect(20, 20, 200, 200), NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_MOVABLE)) {
+    nk_layout_row_static(ctx, 18, 80, 1);
+    //nk_label(ctx, "Position", NK_TEXT_LEFT);
+    //nk_labelf(ctx, NK_TEXT_LEFT, "x: %6.2f", pos.x);
+    //nk_labelf(ctx, NK_TEXT_LEFT, "y: %6.2f", pos.y);
+    //nk_labelf(ctx, NK_TEXT_LEFT, "z: %6.2f", pos.z);
+
+    app->selected_buffer = nk_combo(ctx, (const char *[2]){"LIGHT", "NORMALS"}, 2, app->selected_buffer, 18, nk_vec2(200, 200));
+
+    nk_end(ctx);
+  }
+}
 
 int main(int argc, char *argv[]) {
   if (IsDebuggerPresent()) {
+    // When you are running with a debugger it always breaks at the start.
+    // Useful to skip all the setup code from SDL.
     __debugbreak();
   }
 
@@ -164,28 +223,6 @@ int main(int argc, char *argv[]) {
     render_height
   );
 
-#if 0
-  {
-    ufbx_error err;
-    ufbx_scene *scene = ufbx_load_file("data/pica-pica-mini-diorama-01/Mini_Diorama_01.fbx", NULL, &err);
-    if (!scene) {
-      fprintf(stderr, "Failed to load: %s\n", err.description.data);
-      return 1;
-    }
-
-    for (u32 i = 0; i < scene->nodes.count; i++) {
-      ufbx_node *node = scene->nodes.data[i];
-      if (node->is_root) continue;
-
-      printf("object: %s\n", node->name.data);
-      if (node->mesh) {
-        printf("-> mesh with %zu faces\n", node->mesh->faces.count);
-      }
-    }
-
-    ufbx_free_scene(scene);
-  }
-#endif
   u64 triangle_count;
   Triangle *triangles;
   if (!read_fbx_triangles("data/pica-pica-mini-diorama-01/Mini_Diorama_01.fbx", &triangles, &triangle_count)) {
@@ -207,8 +244,15 @@ int main(int argc, char *argv[]) {
   bvh_build_from_embree_bvh(&build_bvh, &bvh);
 
   // Accumulation buffer
+  vec3 *acc_xyz = malloc(render_width * render_height * sizeof(vec3));
+  memset(acc_xyz, 0, render_width * render_height * sizeof(vec3));
+
   vec3 *xyz = malloc(render_width * render_height * sizeof(vec3));
   memset(xyz, 0, render_width * render_height * sizeof(vec3));
+
+  // Debug normals buffer
+  vec3 *normals = malloc(render_width * render_height * sizeof(vec3));
+  memset(normals, 0, render_width * render_height * sizeof(vec3));
 
   u32 sample_count = 0;
 
@@ -221,7 +265,7 @@ int main(int argc, char *argv[]) {
 
   CameraControls camera;
   {
-    vec3 position = { 5.0f, 5.0f, 5.0f };
+    vec3 position = { -18.0f, 27.0f, 36.0f };
     f32 pitch, yaw;
     vec3 dir = vec3_normalized(vec3_sub((vec3){0.0f, 0.0f, 0.0f}, position));
     vec3_to_pitch_yaw(dir, &pitch, &yaw);
@@ -237,6 +281,17 @@ int main(int argc, char *argv[]) {
 
   // Previous camera state for tracking movement
   CameraControls camera_prev = camera;
+
+  CameraBasis *basis = malloc(sizeof(CameraBasis));
+  camera_controls_to_basis(&camera, basis);
+
+  AppState app = {
+    .perspective = {
+      .selected = PERSPECTIVE_PINHOLE,
+    },
+    .camera = camera,
+    .selected_buffer = BUFFER_LIGHT,
+  };
 
   // Set up multithreading
   u32 thread_count = SDL_GetNumLogicalCPUCores();
@@ -260,8 +315,10 @@ int main(int argc, char *argv[]) {
       .height = render_height,
       .triangles = triangles,
       .bvh = &build_bvh,
-      .basis = NULL, // Will be updated each frame
+      .basis = basis,
+      .buffer = app.selected_buffer,
       .xyz = xyz,
+      .debug_normals = normals,
       .start_sem = SDL_CreateSemaphore(0),
       .done_sem = SDL_CreateSemaphore(0),
       .should_exit = false,
@@ -305,18 +362,19 @@ int main(int argc, char *argv[]) {
     // Check if camera has moved and reset accumulation if needed
     if (camera_has_moved(&camera, &camera_prev)) {
       memset(xyz, 0, render_width * render_height * sizeof(vec3));
+      memset(normals, 0, render_width * render_height * sizeof(vec3));
       sample_count = 0;
     }
 
     camera_prev = camera;
 
     // Calculate camera basis from camera controls
-    CameraBasis basis;
-    camera_controls_to_basis(&camera, &basis);
+    camera_controls_to_basis(&camera, basis);
 
-    // Update camera basis for all threads
-    for (u32 t = 0; t < thread_count; t++) {
-      thread_work[t].basis = &basis;
+    memset(xyz, 0, render_width * render_height * sizeof(vec3));
+
+    for (u32 i = 0; i < thread_count; i++) {
+      thread_work[i].buffer = app.selected_buffer;
     }
 
     // Signal all threads to start work
@@ -329,48 +387,50 @@ int main(int argc, char *argv[]) {
       SDL_WaitSemaphore(thread_work[t].done_sem);
     }
 
-    sample_count += 1;
-
     void *buffer;
     int pitch;
     SDL_LockTexture(screen, NULL, &buffer, &pitch);
-    u8 *pixels = buffer;
+    {
+      if (app.selected_buffer == BUFFER_LIGHT) {
+        // Accumulation
+        {
+          f32 s;
+          if (sample_count == 0) {
+            s = 1.0f;
+          } else {
+            s = (1.0f / (f32)sample_count);
+          }
 
-    for (i32 y = 0; y < render_height; y++) {
-      for (i32 x = 0; x < render_width; x++) {
-        i32 i = y * render_width + x;
+          for (i32 i = 0; i < render_width * render_height; i++) {
+            acc_xyz[i] = vec3_add(
+              vec3_smul(1.0f - s, acc_xyz[i]),
+              vec3_smul(s, xyz[i]));
+          }
 
-        // Average accumulated XYZ values
-        f32 inv_count = 1.0f / (f32)sample_count;
-        vec3 avg_xyz = vec3_smul(inv_count, xyz[i]);
+          sample_count += 1;
+        }
 
-        vec3 nxyz = normalize_xyz(avg_xyz);
-        vec3 rgb = normalized_xyz_to_linear_rgb(nxyz);
-        vec3 srgb = linear_rgb_to_srgb(rgb);
+        xyz_to_srgb_pixels(render_width, render_height, acc_xyz, buffer, pitch);
+      }
 
-        pixels[(render_height - 1 - y) * pitch + x * 4 + 0] = (u8)(srgb.r * 255.0f);
-        pixels[(render_height - 1 - y) * pitch + x * 4 + 1] = (u8)(srgb.g * 255.0f);
-        pixels[(render_height - 1 - y) * pitch + x * 4 + 2] = (u8)(srgb.b * 255.0f);
+      if (app.selected_buffer == BUFFER_NORMALS) {
+        normals_to_srgb_pixels(render_width, render_height, normals, buffer, pitch);
       }
     }
-
     SDL_UnlockTexture(screen);
 
     SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0x00);
     SDL_RenderClear(renderer);
 
-    SDL_RenderTexture(renderer, screen, NULL, NULL);
+    SDL_RenderTexture(
+      renderer,
+      screen,
+      NULL,
+      //NULL
+      &(SDL_FRect){.x = 640, .y = 480, .w = 640, .h = 480}
+      );
 
-    {
-      struct nk_context *ctx = ui->ctx;
-      if (nk_begin(ctx, "Hello", nk_rect(50, 50, 200, 200), NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_MOVABLE)) {
-        nk_layout_row_static(ctx, 30, 80, 1);
-        if (nk_button_label(ctx, "button")) {
-          // if pressed
-        }
-      }
-      nk_end(ctx);
-    }
+    draw_debug_ui(ui->ctx, &app);
 
     ui_render(ui);
 
@@ -398,6 +458,7 @@ exit:
     SDL_DestroySemaphore(thread_work[t].done_sem);
   }
 
+  free(basis);
   free(threads);
   free(thread_work);
   free(xyz);

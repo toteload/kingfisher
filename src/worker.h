@@ -7,6 +7,11 @@
 #include "vec3.h"
 #include <SDL3/SDL.h>
 
+enum BufferKind {
+  BUFFER_LIGHT,
+  BUFFER_NORMALS,
+};
+
 // Thread work data
 typedef struct ThreadWork {
   u32 y_start;
@@ -16,9 +21,13 @@ typedef struct ThreadWork {
 
   Triangle *triangles;
   EmbreeBvh *bvh;
+
   CameraBasis *basis;
 
+  u32 buffer; // BufferKind
+
   vec3 *xyz; // Shared accumulation buffer
+  vec3 *debug_normals;
 
   Rng rng; // Thread-local RNG
 

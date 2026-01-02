@@ -1,6 +1,142 @@
 #include "worker.h"
 #include "colorspace.h"
 
+void render_xyz(ThreadWork *work) {
+  // Do the ray tracing work for assigned rows
+  for (u32 y = work->y_start; y < work->y_end; y++) {
+    for (i32 x = 0; x < work->width; x++) {
+      i32 i = y * work->width + x;
+
+      f32 u = 2.0f * ((f32)x + 0.5f) / work->width - 1.0f;
+      f32 v = 2.0f * ((f32)y + 0.5f) / work->height - 1.0f;
+
+      Ray ray;
+#if 1
+      {
+        PerspectivePinhole pinhole = {
+          .fov_radians = 0.5f * PI,
+          .inv_aspect_ratio = ((f32)work->height) / work->width,
+          .near = 1.0e-3f,
+          .far = 1.0e5f,
+        };
+
+        generate_primary_ray_pinhole(work->basis, &pinhole, &ray, u, v);
+      }
+#else
+      {
+        PerspectiveOrtho ortho = {
+          .width = work->width / 20.0f,
+          .height = work->height / 20.0f,
+          .near = 1.0e-3f,
+          .far = 1.0e5f,
+        };
+
+        generate_primary_ray_ortho(work->basis, &ortho, &ray, u, v);
+      }
+#endif
+
+      f32 strength = 1.0f;
+      bool escaped = false;
+
+      for (i32 d = 0; d < 8; d++) {
+        HitRecord rec;
+        embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);
+
+        if (rec.t == F32_NO_HIT) {
+          escaped = true;
+          break;
+        }
+
+        vec3 n = triangle_normal(&work->triangles[rec.idx]);
+        if (vec3_dot(n, ray.dir) > 0.0f) {
+          n = vec3_smul(-1.0f, n);
+        }
+
+        vec3 dir = sample_unit_sphere(Rng_f32(&work->rng), Rng_f32(&work->rng));
+        if (vec3_dot(n, dir) < 0.0f) {
+          dir = vec3_smul(-1.0f, dir);
+        }
+
+        // For some reason the dot here can be larger than 1?!
+        strength *= clamp(0.0f, 1.0f, vec3_dot(n, dir));
+
+        ray = (Ray){
+          .origin = vec3_add(
+            vec3_smul(0.001f, n),
+            vec3_add(ray.origin, vec3_smul(rec.t, ray.dir))
+          ),
+          .dir = dir,
+          .min_t = ray.min_t,
+          .max_t = ray.max_t,
+        };
+      }
+
+      if (!escaped) {
+        strength = 0.0f;
+      }
+
+      // Convert wavelength+power to XYZ and accumulate.
+      f32 power = strength * 50.0f;
+      u8 wavelength = 120;
+     
+      vec3 s = spectral_to_xyz(wavelength);
+      work->xyz[i] = vec3_add(work->xyz[i], vec3_smul(power, s));
+    }
+  }
+}
+
+void render_normals(ThreadWork *work) {
+  // Do the ray tracing work for assigned rows
+  for (u32 y = work->y_start; y < work->y_end; y++) {
+    for (i32 x = 0; x < work->width; x++) {
+      i32 i = y * work->width + x;
+
+      f32 u = 2.0f * ((f32)x + 0.5f) / work->width - 1.0f;
+      f32 v = 2.0f * ((f32)y + 0.5f) / work->height - 1.0f;
+
+      Ray ray;
+#if 1
+      {
+        PerspectivePinhole pinhole = {
+          .fov_radians = 0.5f * PI,
+          .inv_aspect_ratio = ((f32)work->height) / work->width,
+          .near = 1.0e-3f,
+          .far = 1.0e5f,
+        };
+
+        generate_primary_ray_pinhole(work->basis, &pinhole, &ray, u, v);
+      }
+#else
+      {
+        PerspectiveOrtho ortho = {
+          .width = work->width / 20.0f,
+          .height = work->height / 20.0f,
+          .near = 1.0e-3f,
+          .far = 1.0e5f,
+        };
+
+        generate_primary_ray_ortho(work->basis, &ortho, &ray, u, v);
+      }
+#endif
+
+      HitRecord rec;
+      embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);
+
+      if (rec.t == F32_NO_HIT) {
+        work->debug_normals[i] = (vec3){ 0.0f, 0.0f, 0.0f };
+        continue;
+      }
+
+      vec3 n = triangle_normal(&work->triangles[rec.idx]);
+      if (vec3_dot(n, ray.dir) > 0.0f) {
+        n = vec3_smul(-1.0f, n);
+      }
+     
+      work->debug_normals[i] = vec3_smul(0.5f, vec3_add(n, (vec3){ 1.0f, 1.0f, 1.0f }));
+    }
+  }
+}
+
 int SDLCALL worker(void *data) {
   ThreadWork *work = (ThreadWork *)data;
 
@@ -13,72 +149,12 @@ int SDLCALL worker(void *data) {
       break;
     }
 
-    // Do the ray tracing work for assigned rows
-    for (u32 y = work->y_start; y < work->y_end; y++) {
-      for (i32 x = 0; x < work->width; x++) {
-        i32 i = y * work->width + x;
+    if (work->buffer == BUFFER_LIGHT) {
+      render_xyz(work);
+    }
 
-        f32 u = 2.0f * ((f32)x + 0.5f) / work->width - 1.0f;
-        f32 v = 2.0f * ((f32)y + 0.5f) / work->height - 1.0f;
-
-        Ray ray;
-        {
-          PerspectivePinhole pinhole = {
-            .fov_radians = 0.5f * PI,
-            .inv_aspect_ratio = ((f32)work->height) / work->width,
-            .near = 1.0e-3f,
-            .far = 1.0e5f,
-          };
-
-          generate_primary_ray_pinhole(work->basis, &pinhole, &ray, u, v);
-        }
-
-        f32 strength = 1.0f;
-        bool escaped = false;
-
-        for (i32 d = 0; d < 3; d++) {
-          HitRecord rec;
-          embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);
-
-          if (rec.t == F32_NO_HIT) {
-            escaped = true;
-            break;
-          }
-
-          vec3 n = triangle_normal(&work->triangles[rec.idx]);
-          if (vec3_dot(n, ray.dir) < 0.0f) {
-            n = vec3_smul(-1.0f, n);
-          }
-
-          vec3 dir = sample_unit_hemisphere(Rng_f32(&work->rng), Rng_f32(&work->rng));
-          if (vec3_dot(n, dir) < 0.0f) {
-            dir = vec3_smul(-1.0f, dir);
-          }
-
-          strength *= vec3_dot(n, dir);
-
-          ray = (Ray){
-            .origin = vec3_add(
-              vec3_smul(0.001f, n),
-              vec3_add(ray.origin, vec3_smul(rec.t, ray.dir))
-            ),
-            .dir = dir,
-            .min_t = ray.min_t,
-            .max_t = ray.max_t,
-          };
-        }
-
-        if (!escaped) {
-          strength = 0.0f;
-        }
-
-        // Convert wavelength+power to XYZ and accumulate.
-        f32 power = strength * 40.0f;
-        u8 wavelength = 120;
-       
-        vec3 s = spectral_to_xyz(wavelength);
-        work->xyz[i] = vec3_add(work->xyz[i], vec3_smul(power, s));
-      }
+    if (work->buffer == BUFFER_NORMALS) {
+      render_normals(work);
     }
 
     // Signal that this thread is done

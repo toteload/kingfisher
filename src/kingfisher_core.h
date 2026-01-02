@@ -44,7 +44,7 @@ typedef union Triangle {
 inline vec3 triangle_normal(Triangle const *triangle) {
   vec3 e1 = vec3_sub(triangle->v1, triangle->v0);
   vec3 e2 = vec3_sub(triangle->v2, triangle->v0);
-  return vec3_cross(e1, e2);
+  return vec3_normalized(vec3_cross(e1, e2));
 }
 
 typedef struct HitRecord {

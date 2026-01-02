@@ -29,6 +29,8 @@
 #define NK_VSNPRINTF(s, n, f, a)  SDL_vsnprintf(s, n, f, a)
 #define NK_STRTOD(str, endptr)    SDL_strtod(str, endptr)
 
+#define NK_INCLUDE_STANDARD_VARARGS
+
 #include <SDL3/SDL.h>
 #include <nuklear/nuklear.h>
 

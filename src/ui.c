@@ -8,6 +8,7 @@
 #include <nuklear/nuklear.h>
 #pragma warning(pop)
 
+#define NK_INCLUDE_STANDARD_VARARGS
 #pragma warning(push)
 #pragma warning(disable:4116)
 #pragma warning(disable:4244)
