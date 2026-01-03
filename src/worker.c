@@ -38,7 +38,7 @@ void render_xyz(ThreadWork *work) {
       f32 strength = 1.0f;
       bool escaped = false;
 
-      for (i32 d = 0; d < 8; d++) {
+      for (i32 d = 0; d < 3; d++) {
         HitRecord rec;
         embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);
 

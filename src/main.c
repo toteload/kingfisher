@@ -230,10 +230,11 @@ int main(int argc, char *argv[]) {
 
   u64 triangle_count;
   Triangle *triangles;
-  if (!read_fbx_triangles("data/pica-pica-mini-diorama-01/Mini_Diorama_01.fbx", &triangles, &triangle_count)) {
+  if (!read_fbx_triangles("data/models/pica-pica-mini-diorama-01/Mini_Diorama_01.fbx", &triangles, &triangle_count)) {
     printf("Failed to load .fbx file.\n");
     return 1;
   }
+
 #if 0
   u64 bunny_triangle_count;
   Triangle *bunny_triangles;
@@ -385,7 +386,6 @@ int main(int argc, char *argv[]) {
     if (all_render_threads_done) {
       // Check if camera has moved and reset accumulation if needed
       if (camera_has_moved(&camera, &camera_prev)) {
-        memset(normals, 0, render_width * render_height * sizeof(vec3));
         sample_count = 0;
       }
 
@@ -425,6 +425,7 @@ int main(int argc, char *argv[]) {
 
       camera_controls_to_basis(&camera, basis);
 
+      memset(normals, 0, render_width * render_height * sizeof(vec3));
       memset(xyz, 0, render_width * render_height * sizeof(vec3));
 
       for (u32 i = 0; i < thread_count; i++) {
