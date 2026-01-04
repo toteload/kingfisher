@@ -38,7 +38,7 @@ void render_xyz(ThreadWork *work) {
       f32 strength = 1.0f;
       bool escaped = false;
 
-      for (i32 d = 0; d < 3; d++) {
+      for (i32 d = 0; d < 4; d++) {
         HitRecord rec;
         embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);
 
@@ -49,16 +49,15 @@ void render_xyz(ThreadWork *work) {
 
         vec3 n = triangle_normal(&work->triangles[rec.idx]);
         if (vec3_dot(n, ray.dir) > 0.0f) {
-          n = vec3_smul(-1.0f, n);
+          n = vec3_smul(-1, n);
         }
 
         vec3 dir = sample_unit_sphere(Rng_f32(&work->rng), Rng_f32(&work->rng));
         if (vec3_dot(n, dir) < 0.0f) {
-          dir = vec3_smul(-1.0f, dir);
+          dir = vec3_smul(-1, dir);
         }
 
-        // For some reason the dot here can be larger than 1?!
-        strength *= clamp(0.0f, 1.0f, vec3_dot(n, dir));
+        strength *= vec3_dot(n, dir);
 
         ray = (Ray){
           .origin = vec3_add(

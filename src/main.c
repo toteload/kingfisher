@@ -32,29 +32,42 @@ bool read_obj_triangles(char const *filename, Triangle **triangles, u64 *triangl
     return false;
   }
 
-  assert(mesh->group_count == 1);
+  u64 count = 0;
+  for (u32 i = 0; i < mesh->group_count; i++) {
+    fastObjGroup *group = &mesh->groups[i];
 
-  fastObjGroup group = mesh->groups[0];
-
-  Triangle *tris = malloc(mesh->face_count * sizeof(Triangle));
-  for (u32 i = 0; i < group.face_count; i++) {
-    // Only support triangles
-    assert(mesh->face_vertices[group.face_offset + i] == 3);
-
-    for (u32 j = 0; j < 3; j++) {
-      fastObjIndex idx = mesh->indices[group.index_offset + 3 * i + j];
-
-      assert(idx.p != 0);
-
-      tris[i].p[j] = (vec3){
-        mesh->positions[3 * idx.p + 0],
-        mesh->positions[3 * idx.p + 1],
-        mesh->positions[3 * idx.p + 2],
-      };
+    for (u32 j = 0; j < group->face_count; j++) {
+      // Only support triangles
+      assert(mesh->face_vertices[group->face_offset + j] == 3);
     }
+
+    count += group->face_count;
   }
 
-  *triangle_count = group.face_count;
+  Triangle *tris = malloc(count * sizeof(Triangle));
+
+  u64 triangle_offset = 0;
+  for (u32 i = 0; i < mesh->group_count; i++) {
+    fastObjGroup *group = &mesh->groups[i];
+
+    for (u32 j = 0; j < group->face_count; j++) {
+      for (u32 k = 0; k < 3; k++) {
+        fastObjIndex idx = mesh->indices[group->index_offset + 3 * j + k];
+
+        assert(idx.p != 0);
+
+        tris[triangle_offset + j].p[k] = (vec3){
+          mesh->positions[3 * idx.p + 0],
+          mesh->positions[3 * idx.p + 1],
+          mesh->positions[3 * idx.p + 2],
+        };
+      }
+    }
+
+    triangle_offset += group->face_count;
+  }
+
+  *triangle_count = count;
   *triangles = tris;
 
   fast_obj_destroy(mesh);
@@ -230,16 +243,21 @@ int main(int argc, char *argv[]) {
 
   u64 triangle_count;
   Triangle *triangles;
-  if (!read_fbx_triangles("data/models/pica-pica-mini-diorama-01/Mini_Diorama_01.fbx", &triangles, &triangle_count)) {
-    printf("Failed to load .fbx file.\n");
+#if 0
+  if (!read_obj_triangles("data/models/sponza/sponza.triangulated.obj", &triangles, &triangle_count)) {
+    printf("Failed to load .OBJ file\n");
     return 1;
   }
-
+#endif
 #if 0
-  u64 bunny_triangle_count;
-  Triangle *bunny_triangles;
-  if (!read_obj_triangles("data/stanford_bunny.obj", &bunny_triangles, &bunny_triangle_count)) {
-    printf("Failed to load Stanford bunny.\n");
+  if (!read_obj_triangles("data/models/stanford_bunny.obj", &triangles, &triangle_count)) {
+    printf("Failed to load .OBJ file\n");
+    return 1;
+  }
+#endif
+#if 1
+  if (!read_fbx_triangles("data/models/pica-pica-mini-diorama-01/Mini_Diorama_01.fbx", &triangles, &triangle_count)) {
+    printf("Failed to load .fbx file.\n");
     return 1;
   }
 #endif

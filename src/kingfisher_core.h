@@ -41,11 +41,34 @@ typedef union Triangle {
   vec3 p[3];
 } Triangle;
 
+typedef struct mat3x3 {
+  vec3 e[3];
+} mat3x3;
+
 inline vec3 triangle_normal(Triangle const *triangle) {
   vec3 e1 = vec3_sub(triangle->v1, triangle->v0);
   vec3 e2 = vec3_sub(triangle->v2, triangle->v0);
   return vec3_normalized(vec3_cross(e1, e2));
 }
+
+inline mat3x3 triangle_basis(Triangle const *triangle) {
+  vec3 e01 = vec3_sub(triangle->v1, triangle->v0);
+  vec3 e02 = vec3_sub(triangle->v2, triangle->v0);
+
+  vec3 e0 = vec3_normalized(e01);
+  vec3 e1 = vec3_normalized(vec3_cross(e01, e02));
+  vec3 e2 = vec3_normalized(vec3_cross(e0, e1));
+
+  return (mat3x3){ e0, e1, e2, };
+}
+
+inline vec3 mat3x3_mul_vec3(mat3x3 mat, vec3 x) {
+  return (vec3){
+    vec3_dot((vec3){ mat.e[0].e[0], mat.e[1].e[0], mat.e[2].e[0], }, x),
+    vec3_dot((vec3){ mat.e[0].e[1], mat.e[1].e[1], mat.e[2].e[1], }, x),
+    vec3_dot((vec3){ mat.e[0].e[2], mat.e[1].e[2], mat.e[2].e[2], }, x),
+  };
+} 
 
 typedef struct HitRecord {
   f32 t;
@@ -160,11 +183,26 @@ inline vec3 sample_unit_sphere(f32 u1, f32 u2) {
 }
 
 inline vec3 sample_unit_hemisphere(f32 u1, f32 u2) {
+#if 0
   f32 s = sqrtf(1.0f - u1 * u1);
   f32 phi = 2.0f * PI * u2;
   f32 x = s * sinf(phi);
   f32 z = s * cosf(phi);
   return (vec3){ x, u1, z, };
+#else
+  // According to the link below you can also get a cosine weighted direction around
+  // a given normal `n` by doing `normalized(n + random_unit_direction())`
+  // https://pema.dev/obsidian/math/light-transport/cosine-weighted-sampling.html
+  // Cosine weighted
+  f32 theta = acosf(sqrtf(u1));
+  f32 phi = TWO_PI * u2;
+
+  f32 x = cosf(phi) * sinf(theta);
+  f32 y = cosf(theta);
+  f32 z = sinf(phi) * sinf(theta);
+
+  return (vec3){ x, y, z, };
+#endif
 }
 
 // u1 and u2 must be in range [0, 1).
