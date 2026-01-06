@@ -173,15 +173,16 @@ inline u32 round_up_to_nearest_power_of_two32(u32 x) {
 // -
 
 inline vec3 sample_unit_sphere(f32 u1, f32 u2) {
-  // Code from PBRT `UniformSampleSphere` page 664
-  f32 z = 1.0f - 2.0f * u1;
-  f32 r = sqrtf(1.0f - z * z);
+  f32 theta = PI * u1;
+  f32 r = sinf(theta);
   f32 phi = 2.0f * PI * u2;
   f32 x = r * cosf(phi);
-  f32 y = r * sinf(phi);
+  f32 y = cosf(theta);
+  f32 z = r * sinf(phi);
   return (vec3){ x, y, z, };
 }
 
+// The Y-axis is considered up and the hemisphere is centered around this axis.
 inline vec3 sample_unit_hemisphere(f32 u1, f32 u2) {
 #if 0
   f32 s = sqrtf(1.0f - u1 * u1);
@@ -193,6 +194,7 @@ inline vec3 sample_unit_hemisphere(f32 u1, f32 u2) {
   // According to the link below you can also get a cosine weighted direction around
   // a given normal `n` by doing `normalized(n + random_unit_direction())`
   // https://pema.dev/obsidian/math/light-transport/cosine-weighted-sampling.html
+  //
   // Cosine weighted
   f32 theta = acosf(sqrtf(u1));
   f32 phi = TWO_PI * u2;

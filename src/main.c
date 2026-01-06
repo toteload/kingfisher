@@ -144,6 +144,14 @@ bool read_fbx_triangles(char const *filename, Triangle **triangles, u64 *triangl
   return true;
 }
 
+void scale_triangles(f32 s, Triangle *triangles, u64 count) {
+  for (u64 i = 0; i < count; i++) {
+    triangles[i].p[0] = vec3_smul(s, triangles[i].p[0]);
+    triangles[i].p[1] = vec3_smul(s, triangles[i].p[1]);
+    triangles[i].p[2] = vec3_smul(s, triangles[i].p[2]);
+  }
+}
+
 void xyz_to_srgb_pixels(i32 width, i32 height, vec3 const *xyz, u8 *pixels, i32 pitch) {
   for (i32 y = 0; y < height; y++) {
     for (i32 x = 0; x < width; x++) {
@@ -178,26 +186,45 @@ void normals_to_srgb_pixels(i32 width, i32 height, vec3 const *normals, u8 *pixe
 int IsDebuggerPresent();
 
 typedef struct AppState {
-  struct {
-    u32 selected;
-    PerspectivePinhole pinhole;
-    PerspectiveOrtho ortho;
-  } perspective;
+  Perspective perspective;
 
-  CameraControls camera;
+  struct {
+    CameraControls current;
+    // Previous camera state for tracking movement
+    CameraControls prev;
+  } camera;
 
   u32 selected_buffer;
 } AppState;
 
 void draw_debug_ui(struct nk_context *ctx, AppState *app) {
-  if (nk_begin(ctx, "Debug info", nk_rect(20, 20, 200, 200), NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_MOVABLE)) {
-    nk_layout_row_static(ctx, 18, 80, 1);
-    //nk_label(ctx, "Position", NK_TEXT_LEFT);
-    //nk_labelf(ctx, NK_TEXT_LEFT, "x: %6.2f", pos.x);
-    //nk_labelf(ctx, NK_TEXT_LEFT, "y: %6.2f", pos.y);
-    //nk_labelf(ctx, NK_TEXT_LEFT, "z: %6.2f", pos.z);
+  f32 line_height = 18;
 
-    app->selected_buffer = nk_combo(ctx, (const char *[2]){"LIGHT", "NORMALS"}, 2, app->selected_buffer, 18, nk_vec2(200, 200));
+  if (nk_begin(ctx, "Debug info", nk_rect(20, 20, 300, 400), NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_MOVABLE|NK_WINDOW_SCALABLE)) {
+    nk_layout_row_static(ctx, line_height, 200, 1);
+    nk_label(ctx, "Position", NK_TEXT_LEFT);
+    nk_property_float(ctx, "#x ", -1e6f, &app->camera.current.position.x, 1e6f, 0.01f, 0.01f);
+    nk_property_float(ctx, "#y ", -1e6f, &app->camera.current.position.y, 1e6f, 0.01f, 0.01f);
+    nk_property_float(ctx, "#z ", -1e6f, &app->camera.current.position.z, 1e6f, 0.01f, 0.01f);
+
+    nk_label(ctx, "Perspective", NK_TEXT_LEFT);
+    app->perspective.selected = nk_combo(
+      ctx,
+      (const char *[2]){"PINHOLE", "ORTHOGRAPHIC"},
+      2,
+      app->perspective.selected,
+      line_height,
+      nk_vec2(200, 200)
+    );
+
+    nk_label(ctx, "Pinhole settings", NK_TEXT_LEFT);
+    nk_property_float(ctx, "fov", 0.01f * PI, &app->perspective.pinhole.fov_radians, PI, 0.01f, 0.01f);
+
+    nk_label(ctx, "Orthograpic settings", NK_TEXT_LEFT);
+    nk_label(ctx, "TODO", NK_TEXT_LEFT);
+
+    nk_label(ctx, "Selected buffer", NK_TEXT_LEFT);
+    app->selected_buffer = nk_combo(ctx, (const char *[2]){"LIGHT", "NORMALS"}, 2, app->selected_buffer, line_height, nk_vec2(200, 200));
 
     nk_end(ctx);
   }
@@ -217,8 +244,8 @@ int main(int argc, char *argv[]) {
   int window_width = 1280;
   int window_height = 960;
 
-  int render_width = window_width;//640;
-  int render_height = window_height;//480;
+  int render_width = window_width / 2;
+  int render_height = window_height / 2;
 
   SDL_Window *window;
   SDL_Renderer *renderer;
@@ -243,11 +270,12 @@ int main(int argc, char *argv[]) {
 
   u64 triangle_count;
   Triangle *triangles;
-#if 0
+#if 1
   if (!read_obj_triangles("data/models/sponza/sponza.triangulated.obj", &triangles, &triangle_count)) {
     printf("Failed to load .OBJ file\n");
     return 1;
   }
+  scale_triangles(0.1f, triangles, triangle_count);
 #endif
 #if 0
   if (!read_obj_triangles("data/models/stanford_bunny.obj", &triangles, &triangle_count)) {
@@ -255,7 +283,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 #endif
-#if 1
+#if 0
   if (!read_fbx_triangles("data/models/pica-pica-mini-diorama-01/Mini_Diorama_01.fbx", &triangles, &triangle_count)) {
     printf("Failed to load .fbx file.\n");
     return 1;
@@ -289,7 +317,7 @@ int main(int argc, char *argv[]) {
 
   CameraControls camera;
   {
-    vec3 position = { -18.0f, 27.0f, 36.0f };
+    vec3 position = { -55.0f, 64.0f, 0.0f };
     f32 pitch, yaw;
     vec3 dir = vec3_normalized(vec3_sub((vec3){0.0f, 0.0f, 0.0f}, position));
     vec3_to_pitch_yaw(dir, &pitch, &yaw);
@@ -303,19 +331,31 @@ int main(int argc, char *argv[]) {
     };
   }
 
-  // Previous camera state for tracking movement
-  CameraControls camera_prev = camera;
-
-  CameraBasis *basis = malloc(sizeof(CameraBasis));
-  camera_controls_to_basis(&camera, basis);
-
   AppState app = {
     .perspective = {
       .selected = PERSPECTIVE_PINHOLE,
+      .pinhole = {
+        .fov_radians = 0.5f * PI,
+        .inv_aspect_ratio = ((f32)render_height) / render_width,
+        .near = 1.0e-3f,
+        .far = 1.0e5f,
+      },
+      .ortho = {
+        .width = render_width / 4.0f,
+        .height = render_height / 4.0f,
+        .near = 1.0e-3f,
+        .far = 1.0e5f,
+      },
     },
-    .camera = camera,
-    .selected_buffer = BUFFER_LIGHT,
+    .camera = {
+      .current = camera,
+      .prev = camera,
+    },
+    .selected_buffer = BUFFER_NORMALS,
   };
+
+  CameraBasis basis;
+  camera_controls_to_basis(&app.camera.current, &basis);
 
   // Set up multithreading
   u32 thread_count = SDL_GetNumLogicalCPUCores();
@@ -344,6 +384,7 @@ int main(int argc, char *argv[]) {
       .height = render_height,
       .triangles = triangles,
       .bvh = &build_bvh,
+      .perspective = app.perspective,
       .basis = basis,
       .buffer = app.selected_buffer,
       .xyz = xyz,
@@ -386,7 +427,7 @@ int main(int argc, char *argv[]) {
 
     // Update camera from keyboard input
     const bool *keys = SDL_GetKeyboardState(NULL);
-    update_camera_from_input(&camera, keys, dt);
+    update_camera_from_input(&app.camera.current, keys, dt);
 
     bool all_render_threads_done = true;
     {
@@ -402,12 +443,13 @@ int main(int argc, char *argv[]) {
     }
 
     if (all_render_threads_done) {
-      // Check if camera has moved and reset accumulation if needed
-      if (camera_has_moved(&camera, &camera_prev)) {
+      // Reset accumulation if needed
+      // TODO also reset accumulation on changes of other parameters.
+      if (camera_has_moved(&app.camera.current, &app.camera.prev)) {
         sample_count = 0;
       }
 
-      camera_prev = camera;
+      app.camera.prev = app.camera.current;
 
       void *buffer;
       int pitch;
@@ -441,13 +483,15 @@ int main(int argc, char *argv[]) {
       }
       SDL_UnlockTexture(screen);
 
-      camera_controls_to_basis(&camera, basis);
+      camera_controls_to_basis(&app.camera.current, &basis);
 
       memset(normals, 0, render_width * render_height * sizeof(vec3));
       memset(xyz, 0, render_width * render_height * sizeof(vec3));
 
       for (u32 i = 0; i < thread_count; i++) {
         thread_work[i].buffer = app.selected_buffer;
+        thread_work[i].basis = basis;
+        thread_work[i].perspective = app.perspective;
       }
 
       // Signal all threads to start work
@@ -499,7 +543,6 @@ exit:
     SDL_DestroySemaphore(thread_work[t].done_sem);
   }
 
-  free(basis);
   free(threads);
   free(thread_work);
   free(xyz);

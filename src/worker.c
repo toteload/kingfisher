@@ -11,29 +11,13 @@ void render_xyz(ThreadWork *work) {
       f32 v = 2.0f * ((f32)y + 0.5f) / work->height - 1.0f;
 
       Ray ray;
-#if 1
-      {
-        PerspectivePinhole pinhole = {
-          .fov_radians = 0.5f * PI,
-          .inv_aspect_ratio = ((f32)work->height) / work->width,
-          .near = 1.0e-3f,
-          .far = 1.0e5f,
-        };
-
-        generate_primary_ray_pinhole(work->basis, &pinhole, &ray, u, v);
+      if (work->perspective.selected == PERSPECTIVE_PINHOLE) {
+        generate_primary_ray_pinhole(&work->basis, &work->perspective.pinhole, &ray, u, v);
       }
-#else
-      {
-        PerspectiveOrtho ortho = {
-          .width = work->width / 20.0f,
-          .height = work->height / 20.0f,
-          .near = 1.0e-3f,
-          .far = 1.0e5f,
-        };
 
-        generate_primary_ray_ortho(work->basis, &ortho, &ray, u, v);
+      if (work->perspective.selected == PERSPECTIVE_ORTHOGRAPHIC) {
+        generate_primary_ray_ortho(&work->basis, &work->perspective.ortho, &ray, u, v);
       }
-#endif
 
       f32 strength = 1.0f;
       bool escaped = false;
@@ -94,29 +78,13 @@ void render_normals(ThreadWork *work) {
       f32 v = 2.0f * ((f32)y + 0.5f) / work->height - 1.0f;
 
       Ray ray;
-#if 1
-      {
-        PerspectivePinhole pinhole = {
-          .fov_radians = 0.5f * PI,
-          .inv_aspect_ratio = ((f32)work->height) / work->width,
-          .near = 1.0e-3f,
-          .far = 1.0e5f,
-        };
-
-        generate_primary_ray_pinhole(work->basis, &pinhole, &ray, u, v);
+      if (work->perspective.selected == PERSPECTIVE_PINHOLE) {
+        generate_primary_ray_pinhole(&work->basis, &work->perspective.pinhole, &ray, u, v);
       }
-#else
-      {
-        PerspectiveOrtho ortho = {
-          .width = work->width / 20.0f,
-          .height = work->height / 20.0f,
-          .near = 1.0e-3f,
-          .far = 1.0e5f,
-        };
 
-        generate_primary_ray_ortho(work->basis, &ortho, &ray, u, v);
+      if (work->perspective.selected == PERSPECTIVE_ORTHOGRAPHIC) {
+        generate_primary_ray_ortho(&work->basis, &work->perspective.ortho, &ray, u, v);
       }
-#endif
 
       HitRecord rec;
       embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);

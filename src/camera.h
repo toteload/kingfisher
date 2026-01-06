@@ -37,6 +37,12 @@ enum PerspectiveKind {
   PERSPECTIVE_ORTHOGRAPHIC,
 };
 
+typedef struct Perspective {
+  u32 selected; // PerspectiveKind
+  PerspectivePinhole pinhole;
+  PerspectiveOrtho ortho;
+} Perspective;
+
 void generate_primary_ray_ortho(CameraBasis const *basis, PerspectiveOrtho const *opt, Ray *ray, f32 u, f32 v);
 void generate_primary_ray_pinhole(CameraBasis const *basis, PerspectivePinhole const *opt, Ray *ray, f32 u, f32 v);
 

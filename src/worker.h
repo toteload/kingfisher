@@ -22,7 +22,8 @@ typedef struct ThreadWork {
   Triangle *triangles;
   EmbreeBvh *bvh;
 
-  CameraBasis *basis;
+  Perspective perspective;
+  CameraBasis basis;
 
   u32 buffer; // BufferKind
 
