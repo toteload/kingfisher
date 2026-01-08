@@ -2,15 +2,15 @@
 
 f32 aabb_intersect(
   Aabb const *bounds,
-  vec3 ray_origin,
-  vec3 reciprocal_ray_dir
+  vec3s ray_origin,
+  vec3s reciprocal_ray_dir
 ) {
   f32 t0 = -FLT_MAX;
   f32 t1 = FLT_MAX;
 
   for (u32 i = 0; i < 3; i++) {
-    f32 t_near = (bounds->lo.e[i] - ray_origin.e[i]) * reciprocal_ray_dir.e[i];
-    f32 t_far = (bounds->hi.e[i] - ray_origin.e[i]) * reciprocal_ray_dir.e[i];
+    f32 t_near = (bounds->lo.raw[i] - ray_origin.raw[i]) * reciprocal_ray_dir.raw[i];
+    f32 t_far = (bounds->hi.raw[i] - ray_origin.raw[i]) * reciprocal_ray_dir.raw[i];
 
     if (t_near > t_far) {
       Swap(f32, t_near, t_far);

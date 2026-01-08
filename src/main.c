@@ -18,6 +18,7 @@
 #pragma warning(pop)
 
 #include <ufbx.h>
+#include <cglm/struct.h>
 
 // Spectral power distribution
 typedef struct Spd_8 {
@@ -56,7 +57,7 @@ bool read_obj_triangles(char const *filename, Triangle **triangles, u64 *triangl
 
         assert(idx.p != 0);
 
-        tris[triangle_offset + j].p[k] = (vec3){
+        tris[triangle_offset + j].p[k] = (vec3s){
           mesh->positions[3 * idx.p + 0],
           mesh->positions[3 * idx.p + 1],
           mesh->positions[3 * idx.p + 2],
@@ -125,7 +126,7 @@ bool read_fbx_triangles(char const *filename, Triangle **triangles, u64 *triangl
         // Transform vertex by node's local transform
         ufbx_vec3 transformed = ufbx_transform_position(&node_to_world, pos);
 
-        tris[tri_idx].p[vert_idx] = (vec3){
+        tris[tri_idx].p[vert_idx] = (vec3s){
           (f32)transformed.x,
           (f32)transformed.y,
           (f32)transformed.z,
@@ -144,22 +145,22 @@ bool read_fbx_triangles(char const *filename, Triangle **triangles, u64 *triangl
   return true;
 }
 
-void transform_triangles(mat3x3 m, Triangle *triangles, u64 count) {
+void transform_triangles(mat3s m, Triangle *triangles, u64 count) {
   for (u64 i = 0; i < count; i++) {
-    triangles[i].p[0] = mat3x3_mul_vec3(m, triangles[i].p[0]);
-    triangles[i].p[1] = mat3x3_mul_vec3(m, triangles[i].p[1]);
-    triangles[i].p[2] = mat3x3_mul_vec3(m, triangles[i].p[2]);
+    triangles[i].p[0] = glms_mat3_mulv(m, triangles[i].p[0]);
+    triangles[i].p[1] = glms_mat3_mulv(m, triangles[i].p[1]);
+    triangles[i].p[2] = glms_mat3_mulv(m, triangles[i].p[2]);
   }
 }
 
-void xyz_to_srgb_pixels(i32 width, i32 height, vec3 const *xyz, u8 *pixels, i32 pitch) {
+void xyz_to_srgb_pixels(i32 width, i32 height, vec3s const *xyz, u8 *pixels, i32 pitch) {
   for (i32 y = 0; y < height; y++) {
     for (i32 x = 0; x < width; x++) {
       i32 i = y * width + x;
 
-      vec3 nxyz = normalize_xyz(xyz[i]);
-      vec3 rgb = normalized_xyz_to_linear_rgb(nxyz);
-      vec3 srgb = linear_rgb_to_srgb(rgb);
+      vec3s nxyz = normalize_xyz(xyz[i]);
+      vec3s rgb = normalized_xyz_to_linear_rgb(nxyz);
+      vec3s srgb = linear_rgb_to_srgb(rgb);
 
       pixels[(height - 1 - y) * pitch + x * 4 + 0] = (u8)(srgb.r * 255.0f);
       pixels[(height - 1 - y) * pitch + x * 4 + 1] = (u8)(srgb.g * 255.0f);
@@ -168,13 +169,13 @@ void xyz_to_srgb_pixels(i32 width, i32 height, vec3 const *xyz, u8 *pixels, i32 
   }
 }
 
-void normals_to_srgb_pixels(i32 width, i32 height, vec3 const *normals, u8 *pixels, i32 pitch) {
+void normals_to_srgb_pixels(i32 width, i32 height, vec3s const *normals, u8 *pixels, i32 pitch) {
   for (i32 y = 0; y < height; y++) {
     for (i32 x = 0; x < width; x++) {
       i32 i = y * width + x;
 
-      vec3 rgb = vec3_smul(255.0f, normals[i]);
-      vec3 srgb = linear_rgb_to_srgb(rgb);
+      vec3s rgb = glms_vec3_scale(normals[i], 255.0f);
+      vec3s srgb = linear_rgb_to_srgb(rgb);
 
       pixels[(height - 1 - y) * pitch + x * 4 + 0] = (u8)(srgb.r * 255.0f);
       pixels[(height - 1 - y) * pitch + x * 4 + 1] = (u8)(srgb.g * 255.0f);
@@ -276,15 +277,13 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  mat3x3 scale = {
-    .e = {
-      (vec3){ 0.1f, 0, 0, },
-      (vec3){ 0, 0.1f, 0, },
-      (vec3){ 0, 0, 0.1f, },
-    },
-  };
-  mat3x3 rotate = mat3x3_rotate_y(0.0f);
-  mat3x3 transform = mat3x3_mul(scale, rotate);
+  mat3s transform;
+  {
+    mat4s m = glms_mat4_identity();
+    m = glms_scale_uni(m, 0.1f);
+    //m = glms_rotate_y(m, 0.0f);
+    transform = glms_mat4_pick3(m);
+  }
   transform_triangles(transform, triangles, triangle_count);
 #endif
 #if 0
@@ -306,15 +305,15 @@ int main(int argc, char *argv[]) {
   bvh_build_from_embree_bvh(&build_bvh, &bvh);
 
   // Accumulation buffer
-  vec3 *acc_xyz = malloc(render_width * render_height * sizeof(vec3));
-  memset(acc_xyz, 0, render_width * render_height * sizeof(vec3));
+  vec3s *acc_xyz = malloc(render_width * render_height * sizeof(vec3s));
+  memset(acc_xyz, 0, render_width * render_height * sizeof(vec3s));
 
-  vec3 *xyz = malloc(render_width * render_height * sizeof(vec3));
-  memset(xyz, 0, render_width * render_height * sizeof(vec3));
+  vec3s *xyz = malloc(render_width * render_height * sizeof(vec3s));
+  memset(xyz, 0, render_width * render_height * sizeof(vec3s));
 
   // Debug normals buffer
-  vec3 *normals = malloc(render_width * render_height * sizeof(vec3));
-  memset(normals, 0, render_width * render_height * sizeof(vec3));
+  vec3s *normals = malloc(render_width * render_height * sizeof(vec3s));
+  memset(normals, 0, render_width * render_height * sizeof(vec3s));
 
   u32 sample_count = 0;
 
@@ -327,9 +326,9 @@ int main(int argc, char *argv[]) {
 
   CameraControls camera;
   {
-    vec3 position = { -55.0f, 64.0f, 0.0f };
+    vec3s position = { -55.0f, 64.0f, 0.0f };
     f32 pitch, yaw;
-    vec3 dir = vec3_normalized(vec3_sub((vec3){0.0f, 0.0f, 0.0f}, position));
+    vec3s dir = glms_vec3_normalize(glms_vec3_sub((vec3s){0.0f, 0.0f, 0.0f}, position));
     vec3_to_pitch_yaw(dir, &pitch, &yaw);
 
     camera = (CameraControls){
@@ -476,9 +475,9 @@ int main(int argc, char *argv[]) {
             }
 
             for (i32 i = 0; i < render_width * render_height; i++) {
-              acc_xyz[i] = vec3_add(
-                vec3_smul(1.0f - s, acc_xyz[i]),
-                vec3_smul(s, xyz[i]));
+              acc_xyz[i] = glms_vec3_add(
+                glms_vec3_scale(acc_xyz[i], 1.0f - s),
+                glms_vec3_scale(xyz[i], s));
             }
 
             sample_count += 1;
@@ -495,8 +494,8 @@ int main(int argc, char *argv[]) {
 
       camera_controls_to_basis(&app.camera.current, &basis);
 
-      memset(normals, 0, render_width * render_height * sizeof(vec3));
-      memset(xyz, 0, render_width * render_height * sizeof(vec3));
+      memset(normals, 0, render_width * render_height * sizeof(vec3s));
+      memset(xyz, 0, render_width * render_height * sizeof(vec3s));
 
       for (u32 i = 0; i < thread_count; i++) {
         thread_work[i].buffer = app.selected_buffer;

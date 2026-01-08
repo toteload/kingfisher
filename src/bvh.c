@@ -16,8 +16,8 @@ Aabb aabb_from_RTCBounds(struct RTCBounds const *bounds) {
 
 Aabb aabb_from_triangle(Triangle const *triangle) {
   return (Aabb){
-    .lo = vec3_min(triangle->v0, vec3_min(triangle->v1, triangle->v2)),
-    .hi = vec3_max(triangle->v0, vec3_max(triangle->v1, triangle->v2)),
+    .lo = glms_vec3_minv(triangle->v0, glms_vec3_minv(triangle->v1, triangle->v2)),
+    .hi = glms_vec3_maxv(triangle->v0, glms_vec3_maxv(triangle->v1, triangle->v2)),
   };
 }
 
@@ -207,7 +207,7 @@ void embree_bvh_intersect(
     .t = F32_NO_HIT,
   };
 
-  vec3 reciprocal_ray_dir = vec3_reciprocal(ray->dir);
+  vec3s reciprocal_ray_dir = vec3_reciprocal(ray->dir);
 
   while (top) {
     BvhBuildNode *node = stack[--top];
@@ -308,7 +308,7 @@ u64 bvh_node_and_prim_count(BvhBuildNode const *node, u64 *prim_count) {
 }
 
 void bvh_build_from_embree_bvh(EmbreeBvh const *embree_bvh, Bvh *bvh) {
-  u64 prim_count;
+  u64 prim_count = 0;
   u64 node_count = bvh_node_and_prim_count(embree_bvh->root, &prim_count);
 
   *bvh = (Bvh){
@@ -352,7 +352,7 @@ void bvh_intersect(
     .t = F32_NO_HIT,
   };
 
-  vec3 reciprocal_ray_dir = vec3_reciprocal(ray->dir);
+  vec3s reciprocal_ray_dir = vec3_reciprocal(ray->dir);
 
   while (top) {
     u32 index = stack[--top];

@@ -7,13 +7,13 @@ void generate_primary_ray_ortho(CameraBasis const *basis,
   f32 u,
   f32 v
 ) {
-  vec3 offset = vec3_add(
-    vec3_smul(0.5f * u * opt->width, basis->du),
-    vec3_smul(0.5f * v * opt->height, basis->dv)
+  vec3s offset = glms_vec3_add(
+    glms_vec3_scale(basis->du, 0.5f * u * opt->width),
+    glms_vec3_scale(basis->dv, 0.5f * v * opt->height)
   );
 
   *ray = (Ray){
-    .origin = vec3_add(basis->position, offset),
+    .origin = glms_vec3_add(basis->position, offset),
     .dir = basis->forward,
     .min_t = opt->near,
     .max_t = opt->far,
@@ -29,12 +29,12 @@ void generate_primary_ray_pinhole(
 ) {
   f32 a = tanf(0.5f * opt->fov_radians);
 
-  vec3 foward = vec3_normalized(
-    vec3_add(
+  vec3s foward = glms_vec3_normalize(
+    glms_vec3_add(
       basis->forward,
-      vec3_add(
-        vec3_smul(a * u, basis->du),
-        vec3_smul(opt->inv_aspect_ratio * a * v, basis->dv))));
+      glms_vec3_add(
+        glms_vec3_scale(basis->du, a * u),
+        glms_vec3_scale(basis->dv, opt->inv_aspect_ratio * a * v))));
 
   *ray = (Ray){
     .origin = basis->position,
@@ -44,7 +44,7 @@ void generate_primary_ray_pinhole(
   };
 }
 
-void camera_controls_to_vectors(CameraControls const *controls, vec3 *forward, vec3 *du, vec3 *dv) {
+void camera_controls_to_vectors(CameraControls const *controls, vec3s *forward, vec3s *du, vec3s *dv) {
   // Calculate forward direction from pitch and yaw
   // Pitch rotates around the right axis (up/down)
   // Yaw rotates around the world up axis (left/right)
@@ -54,12 +54,12 @@ void camera_controls_to_vectors(CameraControls const *controls, vec3 *forward, v
   // Calculate right vector (perpendicular to xz_forward and world up).
   // We cannot use forward, because it is possible to look straight up or down
   // and then forward and world_up are in the same (or exactly opposite) direction.
-  vec3 xz_forward = { cosf(controls->yaw), 0, sinf(controls->yaw), };
-  vec3 world_up = { 0.0f, 1.0f, 0.0f };
-  *du = vec3_normalized(vec3_cross(xz_forward, world_up));
+  vec3s xz_forward = { cosf(controls->yaw), 0, sinf(controls->yaw), };
+  vec3s world_up = { 0.0f, 1.0f, 0.0f };
+  *du = glms_vec3_normalize(glms_vec3_cross(xz_forward, world_up));
 
   // Calculate up vector (perpendicular to right and forward)
-  *dv = vec3_normalized(vec3_cross(*du, *forward));
+  *dv = glms_vec3_normalize(glms_vec3_cross(*du, *forward));
 }
 
 void camera_controls_to_basis(CameraControls const *controls, CameraBasis *basis) {
@@ -79,28 +79,28 @@ bool camera_has_moved(CameraControls const *current, CameraControls const *previ
 
 void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) {
   // Get current camera direction vectors
-  vec3 dir, du, dv;
+  vec3s dir, du, dv;
   camera_controls_to_vectors(camera, &dir, &du, &dv);
 
-  vec3 movement = { 0.0f, 0.0f, 0.0f };
+  vec3s movement = { 0.0f, 0.0f, 0.0f };
 
   if (keys[SDL_SCANCODE_W]) {
-    movement = vec3_add(movement, dir);  // Forward
+    movement = glms_vec3_add(movement, dir);  // Forward
   }
   if (keys[SDL_SCANCODE_S]) {
-    movement = vec3_sub(movement, dir);  // Backward
+    movement = glms_vec3_sub(movement, dir);  // Backward
   }
   if (keys[SDL_SCANCODE_A]) {
-    movement = vec3_sub(movement, du);   // Strafe left
+    movement = glms_vec3_sub(movement, du);   // Strafe left
   }
   if (keys[SDL_SCANCODE_D]) {
-    movement = vec3_add(movement, du);   // Strafe right
+    movement = glms_vec3_add(movement, du);   // Strafe right
   }
   if (keys[SDL_SCANCODE_E]) {
-    movement = vec3_add(movement, dv);
+    movement = glms_vec3_add(movement, dv);
   }
   if (keys[SDL_SCANCODE_Q]) {
-    movement = vec3_sub(movement, dv);
+    movement = glms_vec3_sub(movement, dv);
   }
 
   f32 mult = 1.0f;
@@ -108,9 +108,9 @@ void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) 
     mult = 4.0f;
   }
 
-  if (vec3_dot(movement, movement) > 0.0f) {
-    vec3 displacement = vec3_smul(camera->move_speed * mult * dt, vec3_normalized(movement));
-    camera->position = vec3_add(camera->position, displacement);
+  if (glms_vec3_dot(movement, movement) > 0.0f) {
+    vec3s displacement = glms_vec3_scale(glms_vec3_normalize(movement), camera->move_speed * mult * dt);
+    camera->position = glms_vec3_add(camera->position, displacement);
   }
 
   // Rotation

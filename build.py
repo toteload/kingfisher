@@ -36,7 +36,7 @@ def create_build_ninja():
                   '/showIncludes',
                   '/W4',
                   '/wd4201 /wd4100 /wd4189',
-                  '/Iext /Iext/SDL /Iext/embree-4.4.0/include',
+                  '/Iext /Iext/SDL /Iext/embree-4.4.0/include /Iext/cglm',
                   '/Oi',
                   '/Zi /FS',
                   '/arch:AVX512',
@@ -97,6 +97,7 @@ def create_build_ninja():
                 'ext/SDL/debug/SDL3.lib', 
                 'ext/embree-4.4.0/lib/embree4.lib',
                 'ext/embree-4.4.0/lib/tbb12.lib',
+                'ext/cglm/cglm.lib',
                 'kernel32.lib', # IsDebuggerPresent
                 ],
             'cflags': '/Zi',

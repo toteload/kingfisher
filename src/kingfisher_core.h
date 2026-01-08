@@ -7,6 +7,8 @@
 #include <stdlib.h> // _rotl
 #include <stdbool.h>
 
+#include <cglm/struct.h>
+
 // Basic types
 // -
 
@@ -21,76 +23,91 @@ typedef uint64_t u64;
 typedef float f32;
 typedef double f64;
 
-#include "vec3.h"
-
 #define F32_NO_HIT FLT_MAX
 
 typedef struct Ray {
-  vec3 origin;
+  vec3s origin;
   f32 min_t;
-  vec3 dir;
+  vec3s dir;
   f32 max_t;
 } Ray;
 
 typedef union Triangle {
   struct {
-    vec3 v0;
-    vec3 v1;
-    vec3 v2;
+    vec3s v0;
+    vec3s v1;
+    vec3s v2;
   };
-  vec3 p[3];
+  vec3s p[3];
 } Triangle;
 
-typedef struct mat3x3 {
-  vec3 e[3];
-} mat3x3;
-
-inline vec3 triangle_normal(Triangle const *triangle) {
-  vec3 e1 = vec3_sub(triangle->v1, triangle->v0);
-  vec3 e2 = vec3_sub(triangle->v2, triangle->v0);
-  return vec3_normalized(vec3_cross(e1, e2));
+inline vec3s triangle_normal(Triangle const *triangle) {
+  vec3s e1 = glms_vec3_sub(triangle->v1, triangle->v0);
+  vec3s e2 = glms_vec3_sub(triangle->v2, triangle->v0);
+  return glms_vec3_normalize(glms_vec3_cross(e1, e2));
 }
 
-inline mat3x3 triangle_basis(Triangle const *triangle) {
-  vec3 e01 = vec3_sub(triangle->v1, triangle->v0);
-  vec3 e02 = vec3_sub(triangle->v2, triangle->v0);
-
-  vec3 e0 = vec3_normalized(e01);
-  vec3 e1 = vec3_normalized(vec3_cross(e01, e02));
-  vec3 e2 = vec3_normalized(vec3_cross(e0, e1));
-
-  return (mat3x3){ e0, e1, e2, };
+inline vec3s vec3_reciprocal(vec3s a) {
+  return (vec3s){{ 1.0f / a.x, 1.0f / a.y, 1.0f / a.z, }}; 
 }
 
-inline mat3x3 mat3x3_rotate_y(f32 radians) {
-  f32 c = cosf(radians);
-  f32 s = sinf(radians);
-  return (mat3x3){
-    .e = {
-      (vec3){ c, 0.0f, -s },
-      (vec3){ 0.0f, 1.0f, 0.0f },
-      (vec3){ s, 0.0f, c },
-    }
+inline vec3s pitch_yaw_to_vec3(f32 pitch, f32 yaw) {
+  f32 cos_pitch = cosf(pitch);
+
+  return (vec3s){
+    cosf(yaw) * cos_pitch,
+    sinf(pitch),
+    sinf(yaw) * cos_pitch,
   };
 }
 
-inline vec3 mat3x3_mul_vec3(mat3x3 mat, vec3 x) {
-  return (vec3){
-    vec3_dot((vec3){ mat.e[0].e[0], mat.e[1].e[0], mat.e[2].e[0], }, x),
-    vec3_dot((vec3){ mat.e[0].e[1], mat.e[1].e[1], mat.e[2].e[1], }, x),
-    vec3_dot((vec3){ mat.e[0].e[2], mat.e[1].e[2], mat.e[2].e[2], }, x),
-  };
-} 
-
-inline mat3x3 mat3x3_mul(mat3x3 a, mat3x3 b) {
-  return (mat3x3){
-    .e = {
-      mat3x3_mul_vec3(a, b.e[0]),
-      mat3x3_mul_vec3(a, b.e[1]),
-      mat3x3_mul_vec3(a, b.e[2]),
-    }
-  };
+// Assumes that up is (0, 1, 0)
+// `n` must be normalized.
+inline void vec3_to_pitch_yaw(vec3s n, f32 *pitch, f32 *yaw) {
+  *pitch = asinf(n.y);
+  *yaw = atan2f(n.z, n.x);
 }
+
+//inline mat3x3 triangle_basis(Triangle const *triangle) {
+//  vec3 e01 = vec3_sub(triangle->v1, triangle->v0);
+//  vec3 e02 = vec3_sub(triangle->v2, triangle->v0);
+//
+//  vec3 e0 = vec3_normalized(e01);
+//  vec3 e1 = vec3_normalized(vec3_cross(e01, e02));
+//  vec3 e2 = vec3_normalized(vec3_cross(e0, e1));
+//
+//  return (mat3x3){ e0, e1, e2, };
+//}
+//
+//inline mat3x3 mat3x3_rotate_y(f32 radians) {
+//  f32 c = cosf(radians);
+//  f32 s = sinf(radians);
+//  return (mat3x3){
+//    .e = {
+//      (vec3){ c, 0.0f, -s },
+//      (vec3){ 0.0f, 1.0f, 0.0f },
+//      (vec3){ s, 0.0f, c },
+//    }
+//  };
+//}
+//
+//inline vec3 mat3x3_mul_vec3(mat3x3 mat, vec3 x) {
+//  return (vec3){
+//    vec3_dot((vec3){ mat.e[0].e[0], mat.e[1].e[0], mat.e[2].e[0], }, x),
+//    vec3_dot((vec3){ mat.e[0].e[1], mat.e[1].e[1], mat.e[2].e[1], }, x),
+//    vec3_dot((vec3){ mat.e[0].e[2], mat.e[1].e[2], mat.e[2].e[2], }, x),
+//  };
+//} 
+//
+//inline mat3x3 mat3x3_mul(mat3x3 a, mat3x3 b) {
+//  return (mat3x3){
+//    .e = {
+//      mat3x3_mul_vec3(a, b.e[0]),
+//      mat3x3_mul_vec3(a, b.e[1]),
+//      mat3x3_mul_vec3(a, b.e[2]),
+//    }
+//  };
+//}
 
 typedef struct HitRecord {
   f32 t;
@@ -111,12 +128,12 @@ inline bool ray_triangle_intersect(
   const f32 EPSILON = 0.0000001f;
 
   // Compute edges from v0
-  vec3 edge1 = vec3_sub(tri->v1, tri->v0);
-  vec3 edge2 = vec3_sub(tri->v2, tri->v0);
+  vec3s edge1 = glms_vec3_sub(tri->v1, tri->v0);
+  vec3s edge2 = glms_vec3_sub(tri->v2, tri->v0);
 
   // Begin calculating determinant - also used to calculate u parameter
-  vec3 h = vec3_cross(ray->dir, edge2);
-  f32 a = vec3_dot(edge1, h);
+  vec3s h = glms_vec3_cross(ray->dir, edge2);
+  f32 a = glms_vec3_dot(edge1, h);
 
   // Ray is parallel to triangle
   if (fabs(a) < EPSILON) {
@@ -125,8 +142,8 @@ inline bool ray_triangle_intersect(
   }
 
   f32 f = 1.0f / a;
-  vec3 s = vec3_sub(ray->origin, tri->v0);
-  f32 u = f * vec3_dot(s, h);
+  vec3s s = glms_vec3_sub(ray->origin, tri->v0);
+  f32 u = f * glms_vec3_dot(s, h);
 
   // Intersection is outside triangle
   if (u < 0.0f || u > 1.0f) {
@@ -134,8 +151,8 @@ inline bool ray_triangle_intersect(
     return false;
   }
 
-  vec3 q = vec3_cross(s, edge1);
-  f32 v = f * vec3_dot(ray->dir, q);
+  vec3s q = glms_vec3_cross(s, edge1);
+  f32 v = f * glms_vec3_dot(ray->dir, q);
 
   // Intersection is outside triangle
   if (v < 0.0f || u + v > 1.0f) {
@@ -144,7 +161,7 @@ inline bool ray_triangle_intersect(
   }
 
   // Compute t to find intersection point on ray
-  f32 t = f * vec3_dot(edge2, q);
+  f32 t = f * glms_vec3_dot(edge2, q);
 
   // Check if intersection is within ray bounds
   if (t < ray->min_t || t > ray->max_t) {
@@ -194,7 +211,7 @@ inline u32 round_up_to_nearest_power_of_two32(u32 x) {
 // Sampling
 // -
 
-inline vec3 sample_unit_sphere(f32 u1, f32 u2) {
+inline vec3s sample_unit_sphere(f32 u1, f32 u2) {
   f32 theta = TWO_PI * u2;
   f32 phi = PI * u1;
 
@@ -204,11 +221,11 @@ inline vec3 sample_unit_sphere(f32 u1, f32 u2) {
   f32 y = cosf(phi);
   f32 z = r * sinf(theta);
 
-  return (vec3){ x, y, z, };
+  return (vec3s){ x, y, z, };
 }
 
 // The Y-axis is considered up and the hemisphere is centered around this axis.
-inline vec3 sample_unit_hemisphere(f32 u1, f32 u2) {
+inline vec3s sample_unit_hemisphere(f32 u1, f32 u2) {
 #if 0
   f32 s = sqrtf(1.0f - u1 * u1);
   f32 phi = 2.0f * PI * u2;
@@ -228,7 +245,7 @@ inline vec3 sample_unit_hemisphere(f32 u1, f32 u2) {
   f32 y = cosf(theta);
   f32 z = sinf(phi) * sinf(theta);
 
-  return (vec3){ x, y, z, };
+  return (vec3s){ x, y, z, };
 #endif
 }
 

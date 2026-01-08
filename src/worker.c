@@ -31,9 +31,9 @@ void render_xyz(ThreadWork *work) {
           break;
         }
 
-        vec3 n = triangle_normal(&work->triangles[rec.idx]);
-        if (vec3_dot(n, ray.dir) > 0.0f) {
-          n = vec3_smul(-1.0f, n);
+        vec3s n = triangle_normal(&work->triangles[rec.idx]);
+        if (glms_vec3_dot(n, ray.dir) > 0.0f) {
+          n = glms_vec3_scale(n, -1.0f);
         }
 
 #if 0
@@ -49,15 +49,15 @@ void render_xyz(ThreadWork *work) {
         // Sneaky cosine-weighted random direction
         f32 u1 = Rng_f32(&work->rng);
         f32 u2 = Rng_f32(&work->rng);
-        vec3 dir = vec3_normalized(vec3_add(n, sample_unit_sphere(u1, u2)));
+        vec3s dir = glms_vec3_normalize(glms_vec3_add(n, sample_unit_sphere(u1, u2)));
 #endif
 
-        strength *= vec3_dot(n, dir);
+        strength *= glms_vec3_dot(n, dir);
 
         ray = (Ray){
-          .origin = vec3_add(
-            vec3_smul(0.001f, n),
-            vec3_add(ray.origin, vec3_smul(rec.t, ray.dir))
+          .origin = glms_vec3_add(
+            glms_vec3_scale(n, 0.001f),
+            glms_vec3_add(ray.origin, glms_vec3_scale(ray.dir, rec.t))
           ),
           .dir = dir,
           .min_t = ray.min_t,
@@ -73,8 +73,8 @@ void render_xyz(ThreadWork *work) {
       f32 power = strength * 50.0f;
       u8 wavelength = 120;
      
-      vec3 s = spectral_to_xyz(wavelength);
-      work->xyz[i] = vec3_add(work->xyz[i], vec3_smul(power, s));
+      vec3s s = spectral_to_xyz(wavelength);
+      work->xyz[i] = glms_vec3_add(work->xyz[i], glms_vec3_scale(s, power));
     }
   }
 }
@@ -101,16 +101,16 @@ void render_normals(ThreadWork *work) {
       embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);
 
       if (rec.t == F32_NO_HIT) {
-        work->debug_normals[i] = (vec3){ 0.0f, 0.0f, 0.0f };
+        work->debug_normals[i] = (vec3s){ 0.0f, 0.0f, 0.0f };
         continue;
       }
 
-      vec3 n = triangle_normal(&work->triangles[rec.idx]);
-      if (vec3_dot(n, ray.dir) > 0.0f) {
-        n = vec3_smul(-1.0f, n);
+      vec3s n = triangle_normal(&work->triangles[rec.idx]);
+      if (glms_vec3_dot(n, ray.dir) > 0.0f) {
+        n = glms_vec3_scale(n, -1.0f);
       }
      
-      work->debug_normals[i] = vec3_smul(0.5f, vec3_add(n, (vec3){ 1.0f, 1.0f, 1.0f }));
+      work->debug_normals[i] = glms_vec3_scale(glms_vec3_add(n, (vec3s){ 1.0f, 1.0f, 1.0f }), 0.5f);
     }
   }
 }

@@ -4,7 +4,7 @@
 #include "kingfisher_core.h"
 
 typedef struct CameraControls {
-  vec3 position;
+  vec3s position;
   f32 pitch;      // Radians, always in [-pi/2, pi/2]
   f32 yaw;        // Radians, always in [-pi, pi]
   f32 move_speed;
@@ -12,10 +12,10 @@ typedef struct CameraControls {
 } CameraControls;
 
 typedef struct CameraBasis {
-  vec3 position;
-  vec3 forward;
-  vec3 du;
-  vec3 dv;
+  vec3s position;
+  vec3s forward;
+  vec3s du;
+  vec3s dv;
 } CameraBasis;
 
 typedef struct PerspectiveOrtho {
@@ -46,7 +46,7 @@ typedef struct Perspective {
 void generate_primary_ray_ortho(CameraBasis const *basis, PerspectiveOrtho const *opt, Ray *ray, f32 u, f32 v);
 void generate_primary_ray_pinhole(CameraBasis const *basis, PerspectivePinhole const *opt, Ray *ray, f32 u, f32 v);
 
-void camera_controls_to_vectors(CameraControls const *controls, vec3 *forward, vec3 *du, vec3 *dv);
+void camera_controls_to_vectors(CameraControls const *controls, vec3s *forward, vec3s *du, vec3s *dv);
 void camera_controls_to_basis(CameraControls const *controls, CameraBasis *basis);
 bool camera_has_moved(CameraControls const *current, CameraControls const *previous);
 void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt);

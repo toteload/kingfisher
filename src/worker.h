@@ -4,7 +4,6 @@
 #include "kingfisher_core.h"
 #include "bvh.h"
 #include "camera.h"
-#include "vec3.h"
 #include <SDL3/SDL.h>
 
 enum BufferKind {
@@ -27,8 +26,8 @@ typedef struct ThreadWork {
 
   u32 buffer; // BufferKind
 
-  vec3 *xyz; // Shared accumulation buffer
-  vec3 *debug_normals;
+  vec3s *xyz; // Shared accumulation buffer
+  vec3s *debug_normals;
 
   Rng rng; // Thread-local RNG
 
