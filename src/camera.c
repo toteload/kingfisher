@@ -82,7 +82,6 @@ void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) 
   vec3 dir, du, dv;
   camera_controls_to_vectors(camera, &dir, &du, &dv);
 
-  // Movement in local space
   vec3 movement = { 0.0f, 0.0f, 0.0f };
 
   if (keys[SDL_SCANCODE_W]) {
@@ -97,19 +96,21 @@ void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) 
   if (keys[SDL_SCANCODE_D]) {
     movement = vec3_add(movement, du);   // Strafe right
   }
-
-  // Vertical movement in world space
   if (keys[SDL_SCANCODE_E]) {
-    movement.y += 1.0f;  // Move up
+    movement = vec3_add(movement, dv);
   }
   if (keys[SDL_SCANCODE_Q]) {
-    movement.y -= 1.0f;  // Move down
+    movement = vec3_sub(movement, dv);
   }
 
-  // Apply movement
+  f32 mult = 1.0f;
+  if (keys[SDL_SCANCODE_LSHIFT]) {
+    mult = 4.0f;
+  }
+
   if (vec3_dot(movement, movement) > 0.0f) {
-    vec3 velocity = vec3_smul(camera->move_speed * dt, vec3_normalized(movement));
-    camera->position = vec3_add(camera->position, velocity);
+    vec3 displacement = vec3_smul(camera->move_speed * mult * dt, vec3_normalized(movement));
+    camera->position = vec3_add(camera->position, displacement);
   }
 
   // Rotation

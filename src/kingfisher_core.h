@@ -62,6 +62,18 @@ inline mat3x3 triangle_basis(Triangle const *triangle) {
   return (mat3x3){ e0, e1, e2, };
 }
 
+inline mat3x3 mat3x3_rotate_y(f32 radians) {
+  f32 c = cosf(radians);
+  f32 s = sinf(radians);
+  return (mat3x3){
+    .e = {
+      (vec3){ c, 0.0f, -s },
+      (vec3){ 0.0f, 1.0f, 0.0f },
+      (vec3){ s, 0.0f, c },
+    }
+  };
+}
+
 inline vec3 mat3x3_mul_vec3(mat3x3 mat, vec3 x) {
   return (vec3){
     vec3_dot((vec3){ mat.e[0].e[0], mat.e[1].e[0], mat.e[2].e[0], }, x),
@@ -69,6 +81,16 @@ inline vec3 mat3x3_mul_vec3(mat3x3 mat, vec3 x) {
     vec3_dot((vec3){ mat.e[0].e[2], mat.e[1].e[2], mat.e[2].e[2], }, x),
   };
 } 
+
+inline mat3x3 mat3x3_mul(mat3x3 a, mat3x3 b) {
+  return (mat3x3){
+    .e = {
+      mat3x3_mul_vec3(a, b.e[0]),
+      mat3x3_mul_vec3(a, b.e[1]),
+      mat3x3_mul_vec3(a, b.e[2]),
+    }
+  };
+}
 
 typedef struct HitRecord {
   f32 t;
@@ -173,12 +195,15 @@ inline u32 round_up_to_nearest_power_of_two32(u32 x) {
 // -
 
 inline vec3 sample_unit_sphere(f32 u1, f32 u2) {
-  f32 theta = PI * u1;
-  f32 r = sinf(theta);
-  f32 phi = 2.0f * PI * u2;
-  f32 x = r * cosf(phi);
-  f32 y = cosf(theta);
-  f32 z = r * sinf(phi);
+  f32 theta = TWO_PI * u2;
+  f32 phi = PI * u1;
+
+  f32 r = sinf(phi);
+
+  f32 x = r * cosf(theta);
+  f32 y = cosf(phi);
+  f32 z = r * sinf(theta);
+
   return (vec3){ x, y, z, };
 }
 
@@ -257,8 +282,8 @@ inline u32 Rng_u32(Rng *rng) {
 
 // Returns a f32 in the range [0, 1)
 inline f32 Rng_f32(Rng *rng) {
-  union { u32 u; f32 f; } z = { ((u32)0xff) << 22 | Rng_u32(rng) >> 9 };
-  return z.f - 1.0f;
+  u32 x = Rng_u32(rng);
+  return (x >> 8) * 0x1.0p-24f;
 }
 
 #endif // KINGFISHER_H_INCLUDED

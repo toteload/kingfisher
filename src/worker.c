@@ -33,13 +33,24 @@ void render_xyz(ThreadWork *work) {
 
         vec3 n = triangle_normal(&work->triangles[rec.idx]);
         if (vec3_dot(n, ray.dir) > 0.0f) {
-          n = vec3_smul(-1, n);
+          n = vec3_smul(-1.0f, n);
         }
 
-        vec3 dir = sample_unit_sphere(Rng_f32(&work->rng), Rng_f32(&work->rng));
+#if 0
+        // Get a new ray direction that is in the hemisphere of the normal.
+        // Otherwise it would be pointing into the triangle.
+        f32 u1 = Rng_f32(&work->rng);
+        f32 u2 = Rng_f32(&work->rng);
+        vec3 dir = sample_unit_sphere(u1, u2);
         if (vec3_dot(n, dir) < 0.0f) {
           dir = vec3_smul(-1, dir);
         }
+#else
+        // Sneaky cosine-weighted random direction
+        f32 u1 = Rng_f32(&work->rng);
+        f32 u2 = Rng_f32(&work->rng);
+        vec3 dir = vec3_normalized(vec3_add(n, sample_unit_sphere(u1, u2)));
+#endif
 
         strength *= vec3_dot(n, dir);
 

@@ -144,11 +144,11 @@ bool read_fbx_triangles(char const *filename, Triangle **triangles, u64 *triangl
   return true;
 }
 
-void scale_triangles(f32 s, Triangle *triangles, u64 count) {
+void transform_triangles(mat3x3 m, Triangle *triangles, u64 count) {
   for (u64 i = 0; i < count; i++) {
-    triangles[i].p[0] = vec3_smul(s, triangles[i].p[0]);
-    triangles[i].p[1] = vec3_smul(s, triangles[i].p[1]);
-    triangles[i].p[2] = vec3_smul(s, triangles[i].p[2]);
+    triangles[i].p[0] = mat3x3_mul_vec3(m, triangles[i].p[0]);
+    triangles[i].p[1] = mat3x3_mul_vec3(m, triangles[i].p[1]);
+    triangles[i].p[2] = mat3x3_mul_vec3(m, triangles[i].p[2]);
   }
 }
 
@@ -275,7 +275,17 @@ int main(int argc, char *argv[]) {
     printf("Failed to load .OBJ file\n");
     return 1;
   }
-  scale_triangles(0.1f, triangles, triangle_count);
+
+  mat3x3 scale = {
+    .e = {
+      (vec3){ 0.1f, 0, 0, },
+      (vec3){ 0, 0.1f, 0, },
+      (vec3){ 0, 0, 0.1f, },
+    },
+  };
+  mat3x3 rotate = mat3x3_rotate_y(0.0f);
+  mat3x3 transform = mat3x3_mul(scale, rotate);
+  transform_triangles(transform, triangles, triangle_count);
 #endif
 #if 0
   if (!read_obj_triangles("data/models/stanford_bunny.obj", &triangles, &triangle_count)) {
