@@ -5,6 +5,7 @@ __pycache__/
 
 build.ninja
 
+ext/cglm/cglm.*
 ext/embree-4.4.0/lib/*
 ext/embree-4.4.0/include/**/*.isph
 

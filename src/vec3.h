@@ -72,21 +72,4 @@ inline vec3 vec3_cross(vec3 a, vec3 b) {
   };
 }
 
-inline vec3 pitch_yaw_to_vec3(f32 pitch, f32 yaw) {
-  f32 cos_pitch = cosf(pitch);
-
-  return (vec3){
-    cosf(yaw) * cos_pitch,
-    sinf(pitch),
-    sinf(yaw) * cos_pitch,
-  };
-}
-
-// Assumes that up is (0, 1, 0)
-// `n` must be normalized.
-inline void vec3_to_pitch_yaw(vec3 n, f32 *pitch, f32 *yaw) {
-  *pitch = asinf(n.y);
-  *yaw = atan2f(n.z, n.x);
-}
-
 #endif // VEC3_H_INCLUDED
