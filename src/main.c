@@ -360,7 +360,7 @@ int main(int argc, char *argv[]) {
       .current = camera,
       .prev = camera,
     },
-    .selected_buffer = BUFFER_NORMALS,
+    .selected_buffer = BUFFER_LIGHT,
   };
 
   CameraBasis basis;

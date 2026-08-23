@@ -53,7 +53,7 @@ def print_ppm(rows):
             (xyz[2] - black[2]) / (white[2] - black[2]) * (white[2] / white[1]),
         ]
 
-    # Converts normalized XYZ tristimulus values and converts to normalized to RGB tristimulus values
+    # Converts normalized XYZ tristimulus values and converts to normalized RGB tristimulus values
     def xyz_to_rgb(xyz):
         # Matrix from https://en.wikipedia.org/wiki/SRGB
         rgb = [ 
@@ -69,6 +69,7 @@ def print_ppm(rows):
             if s <= 0.0031308:
                 return 12.92 * s
             return 1.055 * (s ** (1 / 2.4)) - 0.055
+
         return [quantize(s) for s in rgb]
 
     line = ''
@@ -91,5 +92,5 @@ if __name__ == '__main__':
     rows = list(reader)
     cols = list(zip(*rows))
 
-    #print_ppm(rows)
-    print_c_lut(cols)
+    print_ppm(rows)
+    #print_c_lut(cols)

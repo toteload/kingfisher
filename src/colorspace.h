@@ -7,7 +7,6 @@ extern float const cie_xyz_x[256];
 extern float const cie_xyz_y[256];
 extern float const cie_xyz_z[256];
 
-// Spectral samples are stored as an 8-bit int wavelength and a 32-bit float power.
 // To get the true wavelength in nm multiply by 2 and add 360.
 // A stored wavelength of 140 represents a wavelength of 2 * 140 + 360 = 640 nm.
 
@@ -46,6 +45,14 @@ inline vec3s linear_rgb_to_srgb(vec3s rgb) {
     }
   }
   return srgb;
+}
+
+// Evaluate the amount of reflectance for wavelength `lambda`.
+// `c` points to an array of 3 coefficients describing the reflectance.
+// Returned value is in range [0, 1]
+inline f32 eval_spectral_reflectance(f32 const *c, f32 lambda) {
+  f32 x = lambda * (lambda * c[0] + c[1]) + c[2];
+  return 0.5f + x / (2.0f * sqrtf(1.0f + x * x));
 }
 
 #endif // COLORSPACE_H_INCLUDED

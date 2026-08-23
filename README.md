@@ -1,0 +1,4 @@
+- [ ] Support OBJ materials
+  - [ ] Add RGB -> spectral conversion
+  - [ ] Load textures for texture mapping
+- [ ] Find out why one side of the Sponza building is more brightly lit.
