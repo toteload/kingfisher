@@ -15,7 +15,8 @@ In its current state it uses multithreading (1 thread per logical core) to trace
 
 You can fly around with WASD, up and down with QE, faster holding Shift, and look around with the arrow keys.
 The screenshot is after standing still for a while and letting the samples accumulate.
-The scene is the Sponza scene illuminated from outside with light with a wavelength of 120nm.
+The scene is the Sponza scene illuminated from outside with light with a wavelength of 600nm.
+No textures yet, just a basic diffuse material for everything.
 
 ## Dependencies
 

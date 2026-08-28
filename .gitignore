@@ -14,3 +14,5 @@ ext/embree-4.4.0/include/**/*.isph
 *.exe
 *.ilk
 *.pdb
+
+!data/**/*.obj
