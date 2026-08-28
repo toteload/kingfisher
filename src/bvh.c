@@ -9,8 +9,8 @@
 
 Aabb aabb_from_RTCBounds(struct RTCBounds const *bounds) {
   return (Aabb){
-    .lo = { bounds->lower_x, bounds->lower_y, bounds->lower_z, },
-    .hi = { bounds->upper_x, bounds->upper_y, bounds->upper_z, },
+    .lo = {{ bounds->lower_x, bounds->lower_y, bounds->lower_z, }},
+    .hi = {{ bounds->upper_x, bounds->upper_y, bounds->upper_z, }},
   };
 }
 
@@ -134,7 +134,7 @@ EmbreeBvh embree_bvh_build(Triangle const *triangles, u64 triangle_count) {
   u64 prim_array_capacity = 2 * prim_count;
 
   struct RTCBuildPrimitive *prims = malloc(2 * triangle_count * sizeof(struct RTCBuildPrimitive));
-  for (i32 i = 0; i < triangle_count; i++) {
+  for (u32 i = 0; i < triangle_count; i++) {
     Aabb bounds = aabb_from_triangle(&triangles[i]);
     prims[i] = (struct RTCBuildPrimitive){
       .lower_x = bounds.lo.x,

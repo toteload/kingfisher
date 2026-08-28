@@ -57,11 +57,11 @@ bool read_obj_triangles(char const *filename, Triangle **triangles, u64 *triangl
 
         assert(idx.p != 0);
 
-        tris[triangle_offset + j].p[k] = (vec3s){
+        tris[triangle_offset + j].p[k] = (vec3s){{
           mesh->positions[3 * idx.p + 0],
           mesh->positions[3 * idx.p + 1],
           mesh->positions[3 * idx.p + 2],
-        };
+        }};
       }
     }
 
@@ -126,11 +126,11 @@ bool read_fbx_triangles(char const *filename, Triangle **triangles, u64 *triangl
         // Transform vertex by node's local transform
         ufbx_vec3 transformed = ufbx_transform_position(&node_to_world, pos);
 
-        tris[tri_idx].p[vert_idx] = (vec3s){
+        tris[tri_idx].p[vert_idx] = (vec3s){{
           (f32)transformed.x,
           (f32)transformed.y,
           (f32)transformed.z,
-        };
+        }};
       }
 
       tri_idx++;
@@ -245,8 +245,8 @@ int main(int argc, char *argv[]) {
   int window_width = 1280;
   int window_height = 960;
 
-  int render_width = window_width / 2;
-  int render_height = window_height / 2;
+  int render_width = window_width / 1;
+  int render_height = window_height / 1;
 
   SDL_Window *window;
   SDL_Renderer *renderer;
@@ -326,9 +326,9 @@ int main(int argc, char *argv[]) {
 
   CameraControls camera;
   {
-    vec3s position = { -55.0f, 64.0f, 0.0f };
+    vec3s position = {{ -55.0f, 64.0f, 0.0f }};
     f32 pitch, yaw;
-    vec3s dir = glms_vec3_normalize(glms_vec3_sub((vec3s){0.0f, 0.0f, 0.0f}, position));
+    vec3s dir = glms_vec3_normalize(glms_vec3_sub((vec3s){{0.0f, 0.0f, 0.0f}}, position));
     vec3_to_pitch_yaw(dir, &pitch, &yaw);
 
     camera = (CameraControls){

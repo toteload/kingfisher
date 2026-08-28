@@ -54,8 +54,8 @@ void camera_controls_to_vectors(CameraControls const *controls, vec3s *forward, 
   // Calculate right vector (perpendicular to xz_forward and world up).
   // We cannot use forward, because it is possible to look straight up or down
   // and then forward and world_up are in the same (or exactly opposite) direction.
-  vec3s xz_forward = { cosf(controls->yaw), 0, sinf(controls->yaw), };
-  vec3s world_up = { 0.0f, 1.0f, 0.0f };
+  vec3s xz_forward = {{ cosf(controls->yaw), 0, sinf(controls->yaw), }};
+  vec3s world_up = {{ 0.0f, 1.0f, 0.0f }};
   *du = glms_vec3_normalize(glms_vec3_cross(xz_forward, world_up));
 
   // Calculate up vector (perpendicular to right and forward)
@@ -82,7 +82,7 @@ void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) 
   vec3s dir, du, dv;
   camera_controls_to_vectors(camera, &dir, &du, &dv);
 
-  vec3s movement = { 0.0f, 0.0f, 0.0f };
+  vec3s movement = {{ 0.0f, 0.0f, 0.0f }};
 
   if (keys[SDL_SCANCODE_W]) {
     movement = glms_vec3_add(movement, dir);  // Forward

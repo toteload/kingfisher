@@ -7,7 +7,10 @@
 #include <stdlib.h> // _rotl
 #include <stdbool.h>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wstatic-in-inline"
 #include <cglm/struct.h>
+#pragma clang diagnostic pop
 
 // Basic types
 // -
@@ -54,11 +57,11 @@ inline vec3s vec3_reciprocal(vec3s a) {
 inline vec3s pitch_yaw_to_vec3(f32 pitch, f32 yaw) {
   f32 cos_pitch = cosf(pitch);
 
-  return (vec3s){
+  return (vec3s){{
     cosf(yaw) * cos_pitch,
     sinf(pitch),
     sinf(yaw) * cos_pitch,
-  };
+  }};
 }
 
 // Assumes that up is (0, 1, 0)
@@ -199,13 +202,11 @@ inline bool ray_triangle_intersect(
 #define clamp(lo,hi,t) min(max(lo, t), hi)
 
 inline u32 clz32(u32 x) {
-  unsigned long idx;
-  u8 res = _BitScanReverse(&idx, x);
-  return (res) ? (31 - idx) : 32;
+  return x ? __builtin_clz(x) : 32;
 }
 
 inline u32 round_up_to_nearest_power_of_two32(u32 x) {
-  return 1 << (32 - clz32(x));
+  return (u32)1 << (32 - clz32(x));
 }
 
 // Sampling
@@ -221,7 +222,7 @@ inline vec3s sample_unit_sphere(f32 u1, f32 u2) {
   f32 y = cosf(phi);
   f32 z = r * sinf(theta);
 
-  return (vec3s){ x, y, z, };
+  return (vec3s){{ x, y, z, }};
 }
 
 // The Y-axis is considered up and the hemisphere is centered around this axis.
@@ -245,7 +246,7 @@ inline vec3s sample_unit_hemisphere(f32 u1, f32 u2) {
   f32 y = cosf(theta);
   f32 z = sinf(phi) * sinf(theta);
 
-  return (vec3s){ x, y, z, };
+  return (vec3s){{ x, y, z, }};
 #endif
 }
 

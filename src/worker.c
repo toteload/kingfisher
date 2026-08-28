@@ -101,7 +101,7 @@ void render_normals(ThreadWork *work) {
       embree_bvh_intersect(work->bvh, &ray, work->triangles, &rec);
 
       if (rec.t == F32_NO_HIT) {
-        work->debug_normals[i] = (vec3s){ 0.0f, 0.0f, 0.0f };
+        work->debug_normals[i] = (vec3s){{ 0.0f, 0.0f, 0.0f }};
         continue;
       }
 
@@ -110,7 +110,7 @@ void render_normals(ThreadWork *work) {
         n = glms_vec3_scale(n, -1.0f);
       }
      
-      work->debug_normals[i] = glms_vec3_scale(glms_vec3_add(n, (vec3s){ 1.0f, 1.0f, 1.0f }), 0.5f);
+      work->debug_normals[i] = glms_vec3_scale(glms_vec3_add(n, (vec3s){{ 1.0f, 1.0f, 1.0f }}), 0.5f);
     }
   }
 }

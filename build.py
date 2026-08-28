@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import ninja_syntax as n
 from subprocess import run
 import sys
@@ -7,6 +5,14 @@ import os
 import platform
 
 join = os.path.join
+
+is_windows = platform.system() == 'Windows'
+
+def exe(name):
+    if is_windows:
+        return f'{name}.exe'
+    else:
+        raise Exception("Windows only")
 
 def outd(p):
     return join('$outdir', p.replace('\\', '__'))
@@ -22,42 +28,38 @@ def create_build_ninja():
         value = 'out',
         )
 
-    out.variable(
-        key   = 'msvc_deps_prefix',
-        value = 'Note: including file:',
-        )
-
     out.rule(
         name    = 'compile_c',
-        deps    = 'msvc',
+        depfile = '$out.d',
         command = ' '.join([
-                  'cl',
-                  '/nologo',
-                  '/showIncludes',
-                  '/W4',
-                  '/wd4201 /wd4100 /wd4189',
-                  '/Iext /Iext/SDL /Iext/embree-4.4.0/include /Iext/cglm',
-                  '/Oi',
-                  '/Zi /FS',
-                  '/arch:AVX512',
+                  'clang',
+                  '-MD -MF $out.d',
+                  '-Wall -Wextra -Wpedantic',
+                  '-Wsign-conversion',
+                  '-Wimplicit-function-declaration',
+                  '-Wno-unused-function',
+                  '-Wno-sign-conversion', # temporarily disabled
+                  '-Werror=switch', # Enforce all enum values are handled
+                  '-Werror=incompatible-pointer-types',
+                  '-fansi-escape-codes -fcolor-diagnostics',
+                  '-std=c23',
+                  '-march=native',
+                  '-Iext -Iext/SDL -Iext/embree-4.4.0/include -Iext/cglm',
                   '$cflags',
                   '-c',
                   '$in',
-                  '/Fo:$out',
+                  '-o $out',
                   ])
         )
 
+    #'/Iext /Iext/SDL /Iext/embree-4.4.0/include /Iext/cglm',
     out.rule(
         name = 'build_binary',
         command = ' '.join([
-            'cl',
-            '/nologo',
-            '/Fe:$out',
-            '$cflags',
+            'clang',
             '$in',
-            '$libs',
-            '/link',
-            '$lflags',
+            '-o $out',
+            '$libs'
             ])
         )
 
@@ -77,31 +79,30 @@ def create_build_ninja():
     outputs = []
 
     for f in inputs:
-        fout = outd(f'{f}.obj')
+        fout = outd(f'{f}.o')
         outputs.append(fout)
         out.build(
             outputs   = fout,
             rule      = 'compile_c',
             inputs    = f,
             variables = {
-                'cflags': '/O2',
+                'cflags': '-O2',
             },
             )
 
     out.build(
-        outputs = 'kingfisher.exe',
+        outputs = outd(exe('kingfisher')),
         rule    = 'build_binary',
-        inputs  = [outd(f'{f}.obj') for f in inputs],
+        inputs  = [outd(f'{f}.o') for f in inputs],
         variables = {
-            'libs': [
+            'libs': ['-l' + x for x in [
                 'ext/SDL/debug/SDL3.lib', 
                 'ext/embree-4.4.0/lib/embree4.lib',
                 'ext/embree-4.4.0/lib/tbb12.lib',
                 'ext/cglm/cglm.lib',
                 'kernel32.lib', # IsDebuggerPresent
-                ],
-            'cflags': '/Zi',
-            'lflags': '/SUBSYSTEM:CONSOLE',
+                ]],
+            #'lflags': '/SUBSYSTEM:CONSOLE',
         },
         )
 
