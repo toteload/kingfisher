@@ -1,10 +1,11 @@
 #ifndef WORKER_H_INCLUDED
 #define WORKER_H_INCLUDED
 
+#include <SDL3/SDL.h>
+
 #include "kingfisher_core.h"
 #include "bvh.h"
 #include "camera.h"
-#include <SDL3/SDL.h>
 
 enum BufferKind {
   BUFFER_LIGHT,

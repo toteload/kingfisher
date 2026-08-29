@@ -1,8 +1,6 @@
 #ifndef UI_H_INCLUDED
 #define UI_H_INCLUDED
 
-#include "kingfisher_core.h"
-
 #define NK_INCLUDE_FONT_BAKING
 #define NK_INCLUDE_DEFAULT_FONT
 
@@ -33,6 +31,8 @@
 
 #include <SDL3/SDL.h>
 #include <nuklear/nuklear.h>
+
+#include "toteload.h"
 
 typedef struct UiState {
   SDL_Window *window;

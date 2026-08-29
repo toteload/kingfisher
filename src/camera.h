@@ -38,7 +38,7 @@ enum PerspectiveKind {
 };
 
 typedef struct Perspective {
-  u32 selected; // PerspectiveKind
+  i32 selected; // PerspectiveKind
   PerspectivePinhole pinhole;
   PerspectiveOrtho ortho;
 } Perspective;

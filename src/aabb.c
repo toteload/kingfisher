@@ -1,3 +1,4 @@
+#include "toteload.h"
 #include "aabb.h"
 
 f32 aabb_intersect(
@@ -16,8 +17,8 @@ f32 aabb_intersect(
       Swap(f32, t_near, t_far);
     }
 
-    t0 = max(t0, t_near);
-    t1 = min(t1, t_far);
+    t0 = Max(t0, t_near);
+    t1 = Min(t1, t_far);
 
     if (t0 > t1) {
       return F32_NO_HIT;

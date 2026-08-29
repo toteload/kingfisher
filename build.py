@@ -1,21 +1,23 @@
 import ninja_syntax as n
-from subprocess import run
+from subprocess import run, call
 import sys
 import os
 import platform
 
 join = os.path.join
 
-is_windows = platform.system() == 'Windows'
+VULKAN_PATH = os.environ['VULKAN_SDK']
+OUT_PATH = 'out'
+VENDOR_PATH = 'vendor'
 
 def exe(name):
-    if is_windows:
         return f'{name}.exe'
-    else:
-        raise Exception("Windows only")
 
 def outd(p):
-    return join('$outdir', p.replace('\\', '__'))
+    return join('$outdir', p.replace('\\', '__').replace('$', '_'))
+
+def merge(a,b):
+    return {k: a.get(k, "") + " " + b.get(k, "") for k in a.keys() | b.keys()}
 
 def create_build_ninja():
     fout = open('build.ninja', 'w')
@@ -25,7 +27,12 @@ def create_build_ninja():
 
     out.variable(
         key   = 'outdir',
-        value = 'out',
+        value = OUT_PATH,
+        )
+
+    out.variable(
+        key   = 'vendor',
+        value = VENDOR_PATH,
         )
 
     out.rule(
@@ -38,13 +45,13 @@ def create_build_ninja():
                   '-Wsign-conversion',
                   '-Wimplicit-function-declaration',
                   '-Wno-unused-function',
-                  '-Wno-sign-conversion', # temporarily disabled
                   '-Werror=switch', # Enforce all enum values are handled
                   '-Werror=incompatible-pointer-types',
                   '-fansi-escape-codes -fcolor-diagnostics',
                   '-std=c23',
                   '-march=native',
-                  '-Iext -Iext/SDL -Iext/embree-4.4.0/include -Iext/cglm',
+                  '-I$vendor -I$vendor/SDL -I$vendor/embree-4.4.0/include -I$vendor/cglm',
+                  f'-isystem {VULKAN_PATH}/Include',
                   '$cflags',
                   '-c',
                   '$in',
@@ -52,11 +59,11 @@ def create_build_ninja():
                   ])
         )
 
-    #'/Iext /Iext/SDL /Iext/embree-4.4.0/include /Iext/cglm',
     out.rule(
         name = 'build_binary',
         command = ' '.join([
             'clang',
+            '$lflags',
             '$in',
             '-o $out',
             '$libs'
@@ -64,7 +71,7 @@ def create_build_ninja():
         )
 
     inputs = [
-        *[join('src', x) for x in [
+        *[(join('src', x), {}) for x in [
             'main.c',
             'cie_xyz_lut.c',
             'bvh.c',
@@ -72,40 +79,45 @@ def create_build_ninja():
             'camera.c',
             'ui.c',
             'worker.c',
+            'toteload.c',
+            'vk.c',
         ]],
-        join('ext', 'ufbx.c'),
+        (join('$vendor', 'ufbx.c'), {'cflags': '-Wno-language-extension-token'}),
+        (join('$vendor', 'volk.c'), {'cflags': '-Wno-language-extension-token'}),
     ]
 
     outputs = []
 
-    for f in inputs:
+    variables = { 'cflags': '-O2', }
+
+    for (f, vars) in inputs:
         fout = outd(f'{f}.o')
         outputs.append(fout)
         out.build(
             outputs   = fout,
             rule      = 'compile_c',
             inputs    = f,
-            variables = {
-                'cflags': '-O2',
-            },
+            variables = merge(variables, vars),
             )
 
     out.build(
         outputs = outd(exe('kingfisher')),
         rule    = 'build_binary',
-        inputs  = [outd(f'{f}.o') for f in inputs],
+        inputs  = [outd(f'{f}.o') for f,_ in inputs],
         variables = {
             'libs': ['-l' + x for x in [
-                'ext/SDL/debug/SDL3.lib', 
-                'ext/embree-4.4.0/lib/embree4.lib',
-                'ext/embree-4.4.0/lib/tbb12.lib',
-                'ext/cglm/cglm.lib',
+                '$vendor/SDL/debug/SDL3.lib', 
+                '$vendor/embree-4.4.0/lib/embree4.lib',
+                '$vendor/embree-4.4.0/lib/tbb12.lib',
+                '$vendor/cglm/cglm.lib',
                 'kernel32.lib', # IsDebuggerPresent
                 ]],
-            #'lflags': '/SUBSYSTEM:CONSOLE',
+            'lflags': '-Wl,/SUBSYSTEM:CONSOLE',
         },
         )
 
 if __name__ == '__main__':
     create_build_ninja()
     run(['ninja'] + sys.argv[1:])
+    comp_commands = open('compile_commands.json', 'w')
+    call(['ninja', '-t', 'compdb', 'compile_c'], stdout=comp_commands)

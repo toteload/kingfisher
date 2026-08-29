@@ -1,0 +1,68 @@
+[
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__main.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2  -c src\\main.c -o out\\src__main.c.o",
+    "file": "src/main.c",
+    "output": "out/src__main.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__cie_xyz_lut.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2  -c src\\cie_xyz_lut.c -o out\\src__cie_xyz_lut.c.o",
+    "file": "src/cie_xyz_lut.c",
+    "output": "out/src__cie_xyz_lut.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__bvh.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2  -c src\\bvh.c -o out\\src__bvh.c.o",
+    "file": "src/bvh.c",
+    "output": "out/src__bvh.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__aabb.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2  -c src\\aabb.c -o out\\src__aabb.c.o",
+    "file": "src/aabb.c",
+    "output": "out/src__aabb.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__camera.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2  -c src\\camera.c -o out\\src__camera.c.o",
+    "file": "src/camera.c",
+    "output": "out/src__camera.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__ui.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2  -c src\\ui.c -o out\\src__ui.c.o",
+    "file": "src/ui.c",
+    "output": "out/src__ui.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__worker.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2  -c src\\worker.c -o out\\src__worker.c.o",
+    "file": "src/worker.c",
+    "output": "out/src__worker.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__toteload.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2  -c src\\toteload.c -o out\\src__toteload.c.o",
+    "file": "src/toteload.c",
+    "output": "out/src__toteload.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__vk.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2  -c src\\vk.c -o out\\src__vk.c.o",
+    "file": "src/vk.c",
+    "output": "out/src__vk.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\_vendor__ufbx.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2 -Wno-language-extension-token -c vendor\\ufbx.c -o out\\_vendor__ufbx.c.o",
+    "file": "vendor/ufbx.c",
+    "output": "out/_vendor__ufbx.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\_vendor__volk.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -O2 -Wno-language-extension-token -c vendor\\volk.c -o out\\_vendor__volk.c.o",
+    "file": "vendor/volk.c",
+    "output": "out/_vendor__volk.c.o"
+  }
+]

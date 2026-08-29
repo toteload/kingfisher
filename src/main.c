@@ -1,24 +1,38 @@
-#include "kingfisher_core.h"
-#include "camera.h"
-#include "colorspace.h"
-#include "bvh.h"
-#include "ui.h"
-#include "worker.h"
+#define _CRT_SECURE_NO_WARNINGS
 
-#include <stdio.h>
-#include <assert.h>
+#include <volk.h>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_vulkan.h>
 
-#pragma warning(push)
-#pragma warning(disable:4996)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wsign-conversion"
 #define FAST_OBJ_IMPLEMENTATION
 #include <fast_obj.h>
-#pragma warning(pop)
+#pragma clang diagnostic pop
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wlanguage-extension-token"
 #include <ufbx.h>
+#pragma clang diagnostic pop
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wstatic-in-inline"
 #include <cglm/struct.h>
+#pragma clang diagnostic pop
+
+#undef _CRT_SECURE_NO_WARNINGS
+
+#include "toteload.h"
+#include "kingfisher_core.h"
+#include "camera.h"
+#include "colorspace.h"
+#include "ui.h"
+#include "vk.h"
+
+#include <stdio.h>
+#include <assert.h>
 
 // Spectral power distribution
 typedef struct Spd_8 {
@@ -195,7 +209,7 @@ typedef struct AppState {
     CameraControls prev;
   } camera;
 
-  u32 selected_buffer;
+  i32 selected_buffer;
 } AppState;
 
 void draw_debug_ui(struct nk_context *ctx, AppState *app) {
@@ -232,6 +246,46 @@ void draw_debug_ui(struct nk_context *ctx, AppState *app) {
 }
 
 int main(int argc, char *argv[]) {
+  Unused(argc, argv);
+
+  if (IsDebuggerPresent()) {
+    // When you are running with a debugger it always breaks at the start.
+    // Useful to skip all the setup code from SDL.
+    __debugbreak();
+  }
+
+  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+    return 1;
+  }
+
+  int window_width = 1280;
+  int window_height = 960;
+
+  SDL_Window *window = SDL_CreateWindow("Kingfisher", window_width, window_height, SDL_WINDOW_VULKAN);
+
+  if (!window) {
+    return 1;
+  }
+
+  VkInstance instance;
+  VkDebugUtilsMessengerEXT messenger;
+  b32 ok = kfvk_instance_create(KFVK_USE_VALIDATION, &instance, &messenger);
+  if (!ok) {
+    return 1;
+  }
+
+  printf("ok\n");
+
+  SDL_DestroyWindow(window);
+  SDL_Quit();
+
+  return 0;
+}
+
+#if 0
+int main(int argc, char *argv[]) {
+  Unused(argc, argv);
+
   if (IsDebuggerPresent()) {
     // When you are running with a debugger it always breaks at the start.
     // Useful to skip all the setup code from SDL.
@@ -318,8 +372,6 @@ int main(int argc, char *argv[]) {
   u32 sample_count = 0;
 
   u64 last_time_ns = SDL_GetTicksNS();
-
-  f32 time = 0.0f;
 
   Rng rng;
   Rng_seed(&rng, 13687844445);
@@ -418,8 +470,6 @@ int main(int argc, char *argv[]) {
     u64 dt_ns = time_ns - last_time_ns;
     f32 dt = ((f32)dt_ns) / 1.0e9f;
     last_time_ns = time_ns;
-
-    time += dt;
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -563,3 +613,4 @@ exit:
 
   return 0;
 }
+#endif

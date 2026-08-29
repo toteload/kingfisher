@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <math.h>
 #include <float.h>
-#include <stdlib.h> // _rotl
 #include <stdbool.h>
 
 #pragma clang diagnostic push
@@ -12,19 +11,10 @@
 #include <cglm/struct.h>
 #pragma clang diagnostic pop
 
+#include "toteload.h"
+
 // Basic types
 // -
-
-typedef  int8_t i8;
-typedef uint8_t u8;
-typedef  int16_t i16;
-typedef uint16_t u16;
-typedef  int32_t i32;
-typedef uint32_t u32;
-typedef  int64_t i64;
-typedef uint64_t u64;
-typedef float f32;
-typedef double f64;
 
 #define F32_NO_HIT FLT_MAX
 
@@ -187,26 +177,12 @@ inline bool ray_triangle_intersect(
 #define PI 3.14159265358979323846f
 #define TWO_PI 6.28318530717958647692f
 
-#define Swap(T,a,b) do { T tmp = (a); a = b; b = tmp; } while(0)
-
-#ifndef max
-// Windows is being annoying. It defines max and min in stdlib.h and there is no flag you can give
-// to prevent it from being defined. And it only defines it you are using C not C++...
-#define max(a,b) (((a) < (b)) ? (b) : (a))
-#endif
-
-#ifndef min
-#define min(a,b) (((a) > (b)) ? (b) : (a))
-#endif
-
-#define clamp(lo,hi,t) min(max(lo, t), hi)
-
 inline u32 clz32(u32 x) {
-  return x ? __builtin_clz(x) : 32;
+  return x ? Cast(u32,__builtin_clz(x)) : 32;
 }
 
 inline u32 round_up_to_nearest_power_of_two32(u32 x) {
-  return (u32)1 << (32 - clz32(x));
+  return Cast(u32,1) << (32 - clz32(x));
 }
 
 // Sampling

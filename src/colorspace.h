@@ -1,6 +1,7 @@
 #ifndef COLORSPACE_H_INCLUDED
 #define COLORSPACE_H_INCLUDED
 
+#include "toteload.h"
 #include "kingfisher_core.h"
 
 extern float const cie_xyz_x[256];
@@ -29,9 +30,9 @@ inline vec3s normalize_xyz(vec3s xyz)
 
 inline vec3s normalized_xyz_to_linear_rgb(vec3s nxyz) {
   return (vec3s){{
-    clamp(0.0f, 1.0f,  3.2406255f * nxyz.x - 1.5372080f * nxyz.y - 0.4986286f * nxyz.z),
-    clamp(0.0f, 1.0f, -0.9689307f * nxyz.x + 1.8757561f * nxyz.y + 0.0415175f * nxyz.z),
-    clamp(0.0f, 1.0f,  0.0557101f * nxyz.x - 0.2040211f * nxyz.y + 1.0569959f * nxyz.z),
+    Clamp(0.0f, 1.0f,  3.2406255f * nxyz.x - 1.5372080f * nxyz.y - 0.4986286f * nxyz.z),
+    Clamp(0.0f, 1.0f, -0.9689307f * nxyz.x + 1.8757561f * nxyz.y + 0.0415175f * nxyz.z),
+    Clamp(0.0f, 1.0f,  0.0557101f * nxyz.x - 0.2040211f * nxyz.y + 1.0569959f * nxyz.z),
   }};
 }
 

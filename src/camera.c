@@ -1,5 +1,7 @@
-#include "camera.h"
 #include <SDL3/SDL.h>
+
+#include "camera.h"
+#include "toteload.h"
 
 void generate_primary_ray_ortho(CameraBasis const *basis,
   PerspectiveOrtho const *opt,
@@ -135,5 +137,5 @@ void update_camera_from_input(CameraControls *camera, const bool *keys, f32 dt) 
     camera->yaw -= 2.0f * PI;
   }
 
-  camera->pitch = clamp(-0.5f * PI, 0.5f * PI, camera->pitch);
+  camera->pitch = Clamp(-0.5f * PI, 0.5f * PI, camera->pitch);
 }

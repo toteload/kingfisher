@@ -1,10 +1,12 @@
-#pragma warning(push)
-#pragma warning(disable: 4324)
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmicrosoft-enum-value"
 #include <embree4/rtcore.h>
-#pragma warning(pop)
+#pragma clang diagnostic pop
 
 #include <SDL3/SDL.h>
 
+#include "toteload.h"
 #include "bvh.h"
 
 Aabb aabb_from_RTCBounds(struct RTCBounds const *bounds) {
@@ -27,6 +29,8 @@ void *embree_callback_create_node(
   u32 child_count,
   void *user
 ) {
+  Unused(user);
+
   BvhBuildNode *node = rtcThreadLocalAlloc(allocator, sizeof(BvhBuildNode), 16);
   Aabb *bounds = rtcThreadLocalAlloc(allocator, child_count * sizeof(Aabb), 16);
   BvhBuildNode **children = rtcThreadLocalAlloc(allocator, child_count * sizeof(BvhBuildNode*), 16);
@@ -43,6 +47,7 @@ void *embree_callback_create_node(
 
 // Callback to set the pointer to all children
 void embree_callback_set_node_children(void *pnode, void **pchildren, u32 child_count, void *user) {
+  Unused(user);
   BvhBuildNode *node = pnode;
   BvhBuildNode **children = (BvhBuildNode**)pchildren;
 
@@ -53,6 +58,7 @@ void embree_callback_set_node_children(void *pnode, void **pchildren, u32 child_
 
 // Callback to set the bounds of all children
 void embree_callback_set_node_bounds(void *pnode, struct RTCBounds const **bounds, u32 child_count, void *user) {
+  Unused(user);
   BvhBuildNode *node = pnode;
 
   for (u32 i = 0; i < child_count; i++) {
@@ -61,6 +67,7 @@ void embree_callback_set_node_bounds(void *pnode, struct RTCBounds const **bound
 }
 
 void *embree_callback_create_leaf(RTCThreadLocalAllocator allocator, struct RTCBuildPrimitive const *build_prims, size_t prim_count, void *user) {
+  Unused(user);
   BvhBuildNode *node = rtcThreadLocalAlloc(allocator, sizeof(BvhBuildNode), 16);
   u64 *prims = rtcThreadLocalAlloc(allocator, prim_count * sizeof(u64), 8);
 
@@ -86,6 +93,8 @@ void embree_callback_split_primitive(
   struct RTCBounds *right,
   void *user
 ) {
+  Unused(user);
+
   *left = (struct RTCBounds){
     .lower_x = prim->lower_x,
     .lower_y = prim->lower_y,
