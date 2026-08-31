@@ -2,11 +2,14 @@
 #define VK_H
 
 #include <volk.h>
+#include <vulkan/vk_enum_string_helper.h>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include "toteload.h"
 
-#define KFVK_CHECK(res) do { if ((res) != VK_SUCCESS) PanicMsg("Vulkan call failed.") } while (0)
+#define VK_CHECK(call) do { VkResult tfvk__res = (call); if (tfvk__res != VK_SUCCESS) { SDL_Log("Call %s failed with %s in %s at %s:%d", #call, string_VkResult(tfvk__res), TTLD_FUNC, __FILE__, __LINE__); } } while (0)
+
+#define VK_TRY(call) do { VkResult tfvk__res = (call); if (tfvk__res != VK_SUCCESS) { SDL_Log("Call %s failed with %s in %s at %s:%d", #call, string_VkResult(tfvk__res), TTLD_FUNC, __FILE__, __LINE__); return False; } } while (0)
 
 typedef enum {
   KFVK_USE_VALIDATION = 1 << 0,

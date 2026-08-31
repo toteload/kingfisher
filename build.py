@@ -67,6 +67,7 @@ def create_build_ninja():
         command = ' '.join([
             'clang',
             '$lflags',
+            '-g',
             '$in',
             '-o $out',
             '$libs'
@@ -100,7 +101,7 @@ def create_build_ninja():
         )
 
     inputs = [
-        *[(join('src', x), {}) for x in [
+        *[(join('src', x), {'cflags': '-g -gcodeview'}) for x in [
             'main.c',
             'cie_xyz_lut.c',
             'bvh.c',
@@ -111,11 +112,11 @@ def create_build_ninja():
             'toteload.c',
             'vk.c',
         ]],
-        (join('$vendor', 'ufbx.c'), {'cflags': '-Wno-language-extension-token'}),
-        (join('$vendor', 'volk.c'), {'cflags': '-Wno-language-extension-token'}),
+        (join('$vendor', 'ufbx.c'), {'cflags': '-Wno-language-extension-token -O2'}),
+        (join('$vendor', 'volk.c'), {'cflags': '-Wno-language-extension-token -O2'}),
     ]
 
-    variables = { 'cflags': '-O2', }
+    variables = { 'cflags': '', }
 
     for (f, vars) in inputs:
         fout = outd(f'{f}.o')

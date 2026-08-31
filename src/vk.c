@@ -1,5 +1,4 @@
 #include "vk.h"
-#include <vulkan/vk_enum_string_helper.h>
 
 internal VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
   VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -39,8 +38,6 @@ internal b32 find_memory_type(VkPhysicalDevice physical_device, u32 type_bits, V
 }
 
 #define MAX_EXTENSIONS 16
-
-#define VK_TRY(call) do { VkResult tfvk__res = (call); if (tfvk__res != VK_SUCCESS) { SDL_Log("Call %s failed with %s in %s at %s:%d", #call, string_VkResult(tfvk__res), TTLD_FUNC, __FILE__, __LINE__); return False; } } while (0)
 
 b32 kfvk_create(kfvk_State *state, Arena *scratch, u32 flags) {
   if (!SDL_Vulkan_LoadLibrary(Null)) {
