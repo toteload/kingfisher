@@ -111,6 +111,7 @@ def create_build_ninja():
             'worker.c',
             'toteload.c',
             'vk.c',
+            'model.c',
         ]],
         (join('$vendor', 'ufbx.c'), {'cflags': '-Wno-language-extension-token -O2'}),
         (join('$vendor', 'volk.c'), {'cflags': '-Wno-language-extension-token -O2'}),

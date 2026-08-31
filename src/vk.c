@@ -1,4 +1,5 @@
 #include "vk.h"
+#include "model.h"
 
 internal VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
   VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -20,7 +21,12 @@ internal VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
   return VK_FALSE;
 }
 
-internal b32 find_memory_type(VkPhysicalDevice physical_device, u32 type_bits, VkMemoryPropertyFlags flags, u32 *out) {
+internal b32 find_memory_type(
+  VkPhysicalDevice physical_device,
+  u32 type_bits,
+  VkMemoryPropertyFlags flags,
+  u32 *out)
+{
   VkPhysicalDeviceMemoryProperties props;
   vkGetPhysicalDeviceMemoryProperties(physical_device, &props);
 
@@ -35,6 +41,79 @@ internal b32 find_memory_type(VkPhysicalDevice physical_device, u32 type_bits, V
   }
 
   return False;
+}
+
+b32 kfvk_create_buffer(
+  kfvk_Buffer *b,
+  VkPhysicalDevice physical_device,
+  VkDevice device,
+  VkDeviceSize size,
+  VkBufferUsageFlags usage,
+  VkMemoryPropertyFlags props)
+{
+  VkBufferCreateInfo buffer_info = {
+    .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+    .size = size,
+    .usage = usage,
+    .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+  };
+
+  VkBuffer buffer;
+  VK_TRY(vkCreateBuffer(device, &buffer_info, Null, &buffer));
+
+  VkMemoryRequirements reqs;
+  vkGetBufferMemoryRequirements(device, buffer, &reqs);
+
+  u32 memory_type_index;
+  if (!find_memory_type(
+        physical_device,
+        reqs.memoryTypeBits,
+        props,
+        &memory_type_index))
+  {
+    Todo();
+  }
+
+  VkMemoryAllocateFlagsInfo flags_info = {
+    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO,
+    .flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT,
+  };
+
+  VkMemoryAllocateInfo alloc_info = {
+    .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+    .pNext = (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) ? &flags_info : Null,
+    .allocationSize = reqs.size,
+    .memoryTypeIndex = memory_type_index,
+  };
+
+  VkDeviceMemory memory;
+  VK_TRY(vkAllocateMemory(device, &alloc_info, Null, &memory));
+  VK_TRY(vkBindBufferMemory(device, buffer, memory, 0));
+
+  VkBufferDeviceAddressInfo address_info = {
+    .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+    .buffer = buffer,
+  };
+
+  VkDeviceAddress address = 0;
+  if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
+    address = vkGetBufferDeviceAddress(device, &address_info);
+  }
+
+  *b = (kfvk_Buffer){
+    .size = size,
+    .buffer = buffer,
+    .memory = memory,
+    .address = address,
+  };
+
+  return True;
+}
+
+void kfvk_destroy_buffer(kfvk_Buffer *b, VkDevice device) {
+  vkDestroyBuffer(device, b->buffer, Null);
+  vkFreeMemory(device, b->memory, Null);
+  zero_struct(kfvk_Buffer, b);
 }
 
 #define MAX_EXTENSIONS 16
@@ -315,38 +394,16 @@ b32 kfvk_create(kfvk_State *state, Arena *scratch, u32 flags) {
 
   {
     VkDeviceSize buffer_size = 1280 * 960 * 3 * sizeof(f32);
-
-    VkBufferCreateInfo buffer_info = {
-      .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-      .size = buffer_size,
-      .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-    };
-
-    VkBuffer buffer;
-    VK_TRY(vkCreateBuffer(device, &buffer_info, Null, &buffer));
-
-    VkMemoryRequirements reqs;
-    vkGetBufferMemoryRequirements(device, buffer, &reqs);
-
-    u32 memory_type_index;
-    if (!find_memory_type(physical_device, reqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &memory_type_index)) {
-      Todo();
+    if (!kfvk_create_buffer(
+          &state->storage,
+          physical_device,
+          device,
+          buffer_size,
+          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+    {
+      return False;
     }
-
-    VkMemoryAllocateInfo alloc_info = {
-      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-      .allocationSize = reqs.size,
-      .memoryTypeIndex = memory_type_index,
-    };
-
-    VkDeviceMemory device_memory;
-    VK_TRY(vkAllocateMemory(device, &alloc_info, Null, &device_memory));
-    VK_TRY(vkBindBufferMemory(device, buffer, device_memory, 0));
-
-    state->storage_size = buffer_size;
-    state->storage_buffer = buffer;
-    state->storage_memory = device_memory;
   }
 
   // Descriptor sets
@@ -384,7 +441,7 @@ b32 kfvk_create(kfvk_State *state, Arena *scratch, u32 flags) {
     state->descriptor_set = descriptor_set;
 
     VkDescriptorBufferInfo buffer_info = {
-      .buffer = state->storage_buffer,
+      .buffer = state->storage.buffer,
       .offset = 0,
       .range = VK_WHOLE_SIZE,
     };
@@ -456,6 +513,238 @@ b32 kfvk_dispatch(kfvk_State *state) {
   VK_TRY(vkResetFences(state->device, 1, &state->fence));
   VK_TRY(vkQueueSubmit(state->queue, 1, &submit_info, state->fence));
   VK_TRY(vkWaitForFences(state->device, 1, &state->fence, VK_TRUE, UINT64_MAX));
+
+  return True;
+}
+
+
+internal b32 build_as_common(
+  kfvk_AccelerationStructure *as,
+  kfvk_State *s,
+  VkAccelerationStructureTypeKHR type,
+  VkAccelerationStructureGeometryKHR const *geometry,
+  u32 primitive_count
+) {
+  VkAccelerationStructureBuildGeometryInfoKHR build_info = {
+    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
+    .type = type,
+    .flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
+    .mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
+    .geometryCount = 1,
+    .pGeometries = geometry,
+  };
+
+  VkAccelerationStructureBuildSizesInfoKHR sizes = {
+    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR,
+  };
+
+  vkGetAccelerationStructureBuildSizesKHR(
+    s->device,
+    VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+    &build_info,
+    &primitive_count,
+    &sizes);
+
+  kfvk_Buffer buffer;
+  kfvk_create_buffer(
+    &buffer,
+    s->physical_device,
+    s->device,
+    sizes.accelerationStructureSize,
+    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  VkAccelerationStructureCreateInfoKHR as_info = {
+    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
+    .buffer = buffer.buffer,
+    .offset = 0,
+    .size = sizes.accelerationStructureSize,
+    .type = type,
+  };
+
+  VkAccelerationStructureKHR handle;
+  VK_TRY(vkCreateAccelerationStructureKHR(s->device, &as_info, Null, &handle));
+
+  VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props = {
+    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR,
+  };
+
+  VkPhysicalDeviceProperties2 props = {
+    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2_KHR,
+    .pNext = &as_props,
+  };
+
+  vkGetPhysicalDeviceProperties2(s->physical_device, &props);
+
+  u32 scratch_align = as_props.minAccelerationStructureScratchOffsetAlignment;
+
+  kfvk_Buffer scratch;
+  kfvk_create_buffer(
+    &scratch,
+    s->physical_device,
+    s->device,
+    sizes.buildScratchSize + scratch_align,
+    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  VkDeviceAddress scratch_address = round_up_to_power_of_two(scratch.address, scratch_align);
+
+  build_info.dstAccelerationStructure = handle;
+  build_info.scratchData.deviceAddress = scratch_address;
+
+  VkAccelerationStructureBuildRangeInfoKHR range = {
+    .primitiveCount = primitive_count,
+    .primitiveOffset = 0,
+    .firstVertex = 0,
+    .transformOffset = 0,
+  };
+
+  VkAccelerationStructureBuildRangeInfoKHR const *ranges[] = { &range };
+
+  VkCommandBuffer cmds = s->command_buffer;
+
+  VK_TRY(vkResetCommandBuffer(cmds, 0));
+
+  VkCommandBufferBeginInfo begin_info = {
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+  };
+
+  VK_TRY(vkBeginCommandBuffer(cmds, &begin_info));
+  vkCmdBuildAccelerationStructuresKHR(cmds, 1, &build_info, ranges);
+  VK_TRY(vkEndCommandBuffer(cmds));
+
+  VkSubmitInfo submit_info = {
+    .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+    .commandBufferCount = 1,
+    .pCommandBuffers = &cmds,
+  };
+
+  VK_TRY(vkResetFences(s->device, 1, &s->fence));
+  VK_TRY(vkQueueSubmit(s->queue, 1, &submit_info, s->fence));
+  VK_TRY(vkWaitForFences(s->device, 1, &s->fence, VK_TRUE, UINT64_MAX));
+
+  kfvk_destroy_buffer(&scratch, s->device);
+
+  VkAccelerationStructureDeviceAddressInfoKHR as_address_info = {
+    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
+    .accelerationStructure = handle,
+  };
+
+  VkDeviceAddress address = vkGetAccelerationStructureDeviceAddressKHR(s->device, &as_address_info);
+
+  *as = (kfvk_AccelerationStructure){
+    .handle = handle,
+    .address = address,
+    .buffer = buffer,
+  };
+
+  return True;
+}
+
+b32 build_acceleration_structures(kfvk_State *s, Triangle const *triangles, u64 triangle_count) {
+  VkDeviceSize size = triangle_count * sizeof(Triangle);
+
+  kfvk_Buffer vertex_buffer;
+  kfvk_AccelerationStructure blas;
+  kfvk_Buffer instance_buffer;
+  kfvk_AccelerationStructure tlas;
+
+  {
+    kfvk_create_buffer(
+      &vertex_buffer,
+      s->physical_device,
+      s->device,
+      size,
+      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+      | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT
+      | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    void *p;
+    VK_TRY(vkMapMemory(s->device, vertex_buffer.memory, 0, VK_WHOLE_SIZE, 0, &p));
+    memcpy(p, triangles, size);
+    vkUnmapMemory(s->device, vertex_buffer.memory);
+  }
+
+  {
+    VkAccelerationStructureGeometryKHR geometry = {
+      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+      .geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
+      .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+      .geometry.triangles = {
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
+        .indexType = VK_INDEX_TYPE_NONE_KHR,
+        .vertexFormat = VK_FORMAT_R32G32B32_SFLOAT,
+        .vertexData = { .deviceAddress = vertex_buffer.address },
+        .vertexStride = 3 * sizeof(f32),
+        .maxVertex = triangle_count,
+      },
+    };
+
+    b32 ok = build_as_common(
+      &blas,
+      s,
+      VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+      &geometry,
+      triangle_count);
+    if (!ok) {
+      return False;
+    }
+  }
+
+  {
+    VkAccelerationStructureInstanceKHR instance = {
+      .transform = {
+        .matrix = {
+          { 1.0f, 0.0f, 0.0f, 0.0f },
+          { 0.0f, 1.0f, 0.0f, 0.0f },
+          { 0.0f, 0.0f, 1.0f, 0.0f },
+        },
+      },
+      .instanceCustomIndex = 0,
+      .mask = 0xff,
+      .instanceShaderBindingTableRecordOffset = 0,
+      .flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR,
+      .accelerationStructureReference = blas.address,
+    };
+
+    kfvk_create_buffer(
+      &instance_buffer,
+      s->physical_device,
+      s->device,
+      sizeof(instance),
+      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
+      | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    void *p;
+    VK_TRY(vkMapMemory(s->device, instance_buffer.memory, 0, VK_WHOLE_SIZE, 0, &p));
+    memcpy(p, &instance, sizeof(instance));
+    vkUnmapMemory(s->device, instance_buffer.memory);
+  }
+
+  {
+    VkAccelerationStructureGeometryKHR geometry = {
+      .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+      .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+      .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+      .geometry.instances = {
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
+        .arrayOfPointers = VK_FALSE,
+        .data.deviceAddress = instance_buffer.address,
+      },
+    };
+
+    b32 ok = build_as_common(
+      &tlas,
+      s,
+      VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+      &geometry, 1);
+    if (!ok) {
+      return False;
+    }
+  }
 
   return True;
 }

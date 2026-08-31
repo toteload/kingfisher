@@ -55,6 +55,12 @@
   },
   {
     "directory": "F:\\david\\code\\kingfisher",
+    "command": "clang -MD -MF out\\src__model.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -g -gcodeview -c src\\model.c -o out\\src__model.c.o",
+    "file": "src/model.c",
+    "output": "out/src__model.c.o"
+  },
+  {
+    "directory": "F:\\david\\code\\kingfisher",
     "command": "clang -MD -MF out\\vendor__ufbx.c.o.d -Wall -Wextra -Wpedantic -Wsign-conversion -Wimplicit-function-declaration -Wno-unused-function -Werror=switch -Werror=incompatible-pointer-types -fansi-escape-codes -fcolor-diagnostics -std=c23 -march=native -Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include -Ivendor/cglm -isystem C:\\VulkanSDK\\1.3.280.0/Include -Wno-language-extension-token -O2 -c vendor\\ufbx.c -o out\\vendor__ufbx.c.o",
     "file": "vendor/ufbx.c",
     "output": "out/vendor__ufbx.c.o"
