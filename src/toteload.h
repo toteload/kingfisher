@@ -227,8 +227,10 @@ void arena_deinit(Arena *arena);
 
 void *arena_push(Arena *arena, usize size, u32 align);
 
-#define arena_push_array(type, arena, count) arena_push(arena, (count) * sizeof(type), Align_of(type))
+#define arena_push_array(type, arena, count) Cast(type*,arena_push(arena, (count) * sizeof(type), Align_of(type)))
 #define arena_push_one(type, arena) arena_push_array(type, arena, 1)
+
+#define arena_append(type, arena, x) do { *arena_push_one(type, arena) = (x); } while (0)
 
 #define arena_freelist_alloc_typed(type, arena, freelist, reserve) \
   Cast(type*, arena_freelist_alloc(arena, freelist, sizeof(type), Align_of(type), reserve))

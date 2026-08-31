@@ -25,14 +25,57 @@
 #undef _CRT_SECURE_NO_WARNINGS
 
 #include "toteload.h"
-#include "kingfisher_core.h"
-#include "camera.h"
-#include "colorspace.h"
-#include "ui.h"
 #include "vk.h"
 
-#include <stdio.h>
 #include <assert.h>
+
+int main(int argc, char *argv[]) {
+  Unused(argc, argv);
+
+  Arena scratch;
+  arena_init(&scratch, &(ArenaOptions){
+    .initial_commit_size = KiB(64),
+    .reserve_size = MiB(4),
+  });
+
+  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+    return 1;
+  }
+
+  int window_width = 1280;
+  int window_height = 960;
+
+  kfvk_State vk = {0};
+  b32 ok = kfvk_create(&vk, &scratch, KFVK_USE_VALIDATION);
+  if (!ok) {
+    return 1;
+  }
+
+  SDL_Window *window = SDL_CreateWindow("Kingfisher", window_width, window_height, SDL_WINDOW_VULKAN);
+
+  if (!window) {
+    return 1;
+  }
+
+  VkSurfaceKHR surface;
+  if (!SDL_Vulkan_CreateSurface(window, vk.instance, Null, &surface)) {
+    SDL_Log("SDL_Vulkan_CreateSurface failed: %s", SDL_GetError());
+    return 1;
+  }
+
+  if (!kfvk_dispatch(&vk)) {
+    return 1;
+  }
+
+  SDL_Log("ok\n");
+
+  SDL_DestroyWindow(window);
+  SDL_Quit();
+
+  return 0;
+}
+
+#if 0
 
 // Spectral power distribution
 typedef struct Spd_8 {
@@ -245,44 +288,7 @@ void draw_debug_ui(struct nk_context *ctx, AppState *app) {
   }
 }
 
-int main(int argc, char *argv[]) {
-  Unused(argc, argv);
 
-  if (IsDebuggerPresent()) {
-    // When you are running with a debugger it always breaks at the start.
-    // Useful to skip all the setup code from SDL.
-    __debugbreak();
-  }
-
-  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
-    return 1;
-  }
-
-  int window_width = 1280;
-  int window_height = 960;
-
-  SDL_Window *window = SDL_CreateWindow("Kingfisher", window_width, window_height, SDL_WINDOW_VULKAN);
-
-  if (!window) {
-    return 1;
-  }
-
-  VkInstance instance;
-  VkDebugUtilsMessengerEXT messenger;
-  b32 ok = kfvk_instance_create(KFVK_USE_VALIDATION, &instance, &messenger);
-  if (!ok) {
-    return 1;
-  }
-
-  printf("ok\n");
-
-  SDL_DestroyWindow(window);
-  SDL_Quit();
-
-  return 0;
-}
-
-#if 0
 int main(int argc, char *argv[]) {
   Unused(argc, argv);
 

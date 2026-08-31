@@ -14,7 +14,10 @@ def exe(name):
         return f'{name}.exe'
 
 def outd(p):
-    return join('$outdir', p.replace('\\', '__').replace('$', '_'))
+    return join('$outdir', p.replace('\\', '__').replace('$', ''))
+
+def out_shader(p):
+    return join('$outdir', os.path.basename(p))
 
 def merge(a,b):
     return {k: a.get(k, "") + " " + b.get(k, "") for k in a.keys() | b.keys()}
@@ -70,6 +73,32 @@ def create_build_ninja():
             ])
         )
 
+    out.rule(
+        name = 'compile_shader',
+        depfile = '$out.d',
+        command = ' '.join([
+            f'{VULKAN_PATH}/Bin/glslc',
+            '-MD -MF $out.d',
+            '--target-env=vulkan1.3',
+            '--target-spv=spv1.4',
+            '-fshader-stage=$stage',
+            '$in',
+            '-o $out',
+        ])
+    )
+
+    shaders = [
+        (join('src', 'test.comp.glsl'), 'compute'),
+    ]
+
+    for f, stage in shaders:
+        out.build(
+            outputs = out_shader(f'{f}.spv'),
+            rule = 'compile_shader',
+            inputs = f,
+            variables = {'stage': stage},
+        )
+
     inputs = [
         *[(join('src', x), {}) for x in [
             'main.c',
@@ -86,13 +115,10 @@ def create_build_ninja():
         (join('$vendor', 'volk.c'), {'cflags': '-Wno-language-extension-token'}),
     ]
 
-    outputs = []
-
     variables = { 'cflags': '-O2', }
 
     for (f, vars) in inputs:
         fout = outd(f'{f}.o')
-        outputs.append(fout)
         out.build(
             outputs   = fout,
             rule      = 'compile_c',
@@ -110,7 +136,6 @@ def create_build_ninja():
                 '$vendor/embree-4.4.0/lib/embree4.lib',
                 '$vendor/embree-4.4.0/lib/tbb12.lib',
                 '$vendor/cglm/cglm.lib',
-                'kernel32.lib', # IsDebuggerPresent
                 ]],
             'lflags': '-Wl,/SUBSYSTEM:CONSOLE',
         },
