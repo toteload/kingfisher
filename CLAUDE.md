@@ -6,92 +6,140 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Kingfisher is a spectral path tracer written in C23. Light is carried as wavelength + power rather
 than RGB, so wavelength-dependent phenomena (dispersion) can be simulated; results are converted to
-sRGB through CIE XYZ for display. It is a work-in-progress personal project. The long-term goal
-stated in the README is hardware-accelerated ray tracing via Vulkan; today it is a CPU tracer,
-multithreaded with one worker thread per logical core.
+sRGB through CIE XYZ for display. It is a work-in-progress personal project.
+
+**The project is mid-migration.** It began as a multithreaded CPU tracer using Embree as a BVH
+builder. Work has now moved to GPU ray tracing via Vulkan (`VK_KHR_ray_query` from a compute shader).
+The `vulkan` branch is where this is happening, and `src/vk.c` is the file under active development.
+
+The consequence for anyone reading this codebase: **most of `src/` is orphaned.** See "What is
+actually live" below before assuming a file matters.
 
 ## Build and run
 
-The build is clang + ninja, driven by a Python generator. From the repo root:
+The build is clang + ninja, driven by a Python generator. Requires the `VULKAN_SDK` environment
+variable (used for headers and for `glslc`). Windows-only — `build.py` reads `os.environ['VULKAN_SDK']`
+and links `.lib` files directly.
 
 ```
 python build.py            # regenerates build.ninja, then runs ninja
 python build.py -v         # extra args are forwarded to ninja
-out/kingfisher.exe         # run (start from the repo root; asset paths are relative)
+out/kingfisher.exe         # run from the repo root (see path note below)
 ```
 
-- `build.py` writes `build.ninja` (gitignored) and shells out to `ninja`. To add a source file, add
-  it to the `inputs` list in `build.py` — there is no globbing.
-- Objects land in `out/` with path-flattened names (`src/bvh.c` -> `out/src__bvh.c.o`).
-- Windows-only: `build.py` raises on any other platform.
-- `build.bat` is a stale MSVC-era wrapper (it calls the deleted `initcl.bat`); use `python build.py`.
+- `build.py` writes `build.ninja` (gitignored), runs `ninja`, then regenerates `compile_commands.json`.
+- To add a source file, add it to the `inputs` list in `build.py`; to add a shader, add it to
+  `shaders` with its stage. There is no globbing.
+- Objects land in `out/` with path-flattened names (`src/vk.c` -> `out/src__vk.c.o`). Shaders land in
+  `out/` under their **basename** (`src/trace_test.comp.glsl` -> `out/trace_test.comp.glsl.spv`).
+- Shaders compile with `--target-env=vulkan1.3 --target-spv=spv1.4` (spv1.4 is required for ray query).
 - `out/` must contain `SDL3.dll`, `embree4.dll`, `tbb12.dll`, `cglm.dll` next to the exe. The build
   does not copy them — they are already there, and `out/` is gitignored.
-- Warning flags matter: `-Wall -Wextra -Wpedantic`, plus `-Werror=switch` (every enum value must be
-  handled) and `-Werror=incompatible-pointer-types`. `-Wsign-conversion` is enabled and then
-  explicitly disabled again ("temporarily"). Optimization is `-O2 -march=native`.
+- Warning flags matter: `-Wall -Wextra -Wpedantic -Wsign-conversion`, plus `-Werror=switch` (every
+  enum value must be handled) and `-Werror=incompatible-pointer-types`.
+
+**Path gotcha:** shaders are loaded relative to `SDL_GetBasePath()` (i.e. next to the exe, in `out/`),
+but model files are loaded with a path relative to the current directory (`data/models/...`). Run the
+exe from the repo root or the scene load fails.
 
 There is no test runner. `test/*.test.c` are not in the build, are point-dump programs for manual
-plotting in Desmos rather than assertions, and still use the removed `vec3` API — treat them as dead.
+plotting in Desmos rather than assertions, and use APIs that no longer exist — treat them as dead.
 
-Running under a debugger: `main()` calls `__debugbreak()` when `IsDebuggerPresent()`, so the process
-intentionally breaks at startup, before SDL initialization.
+## What is actually live
+
+`main.c` includes only `toteload.h`, `vk.h`, and `model.h`. Everything reachable from those three is
+live; everything else is compiled and linked but never called.
+
+**Live:** `main.c`, `vk.c`/`vk.h`, `model.c`/`model.h`, `toteload.c`/`toteload.h`, and the shaders.
+
+**Compiled but unreachable from `main`:** `bvh.c`, `aabb.c`, `camera.c`, `worker.c`, `ui.c`,
+`cie_xyz_lut.c`. These are the CPU tracer. They still build (and Embree/TBB are still linked), so
+breaking them breaks the build, but nothing runs them. `camera.c` in particular holds the primary-ray
+generation math that the GPU path will need to reimplement in GLSL.
+
+**Not in the build at all:** `app.c`/`app.h` (an abandoned refactor), `util.c`, `lu.c`, `vec3.h`
+(superseded by cglm — do not add to it), `test.comp.glsl` is built but no longer loaded by anything.
+
+**Two conflicting `Triangle` definitions exist.** `kingfisher_core.h` declares a `union Triangle`
+(named `.v0/.v1/.v2` plus `.p[3]`); `model.h` declares a `struct Triangle` with just `.p[3]`. Same
+layout, but including both headers in one translation unit is a redefinition error. The Vulkan path
+uses the `model.h` one; the CPU path uses the `kingfisher_core.h` one.
 
 ## Architecture
 
-### Frame loop and threading (`src/main.c`, `src/worker.c`)
+### Base layer (`src/toteload.h`, `src/toteload.c`)
 
-`main.c` owns everything: window, scene load, BVH build, worker threads, accumulation, UI. There is
-no scene or renderer abstraction.
+A single-header-ish personal base layer that everything sits on. Short integer types (`u32`, `f32`,
+`b32`, `usize`), `Null`/`True`/`False`, `Cast(T,x)`, `internal` for `static`, `Count_of`, `Unused(...)`
+(variadic, up to 8 args), `Panic()`/`Todo()`/`TodoMsg()` as unimplemented markers.
 
-Workers are created once and parked on a semaphore pair. Each `ThreadWork` owns a horizontal band of
-rows (`y_start..y_end`), its own `Rng`, and pointers to the shared output buffers; the bands are
-disjoint, so no locking is needed. Per frame the main thread polls `done_sem` with
-`SDL_TryWaitSemaphore`; only when *all* workers are done does it consume the buffers, push the new
-camera basis / perspective / buffer selection into every `ThreadWork`, clear the buffers, and signal
-`start_sem`. Shutdown sets `should_exit` and signals `start_sem` once per thread.
+Memory is arena-based: `Arena` reserves virtual address space and commits incrementally
+(`arena_init` with `ArenaOptions{reserve_size, initial_commit_size}`), `arena_push_array` /
+`arena_push_one` / `arena_append` to allocate, `arena_scope_begin`/`arena_scope_end` for scoped
+resets. `main` creates one 4 MiB scratch arena and threads it into Vulkan setup for shader loading.
+There is also a `String` type (pointer + length, `string_lit` for literals) and `Stack(type)` macros.
 
-Two consequences when changing render parameters: anything a worker reads must be copied into
-`ThreadWork` during that "all done" window, and any parameter change that invalidates accumulated
-samples must reset `sample_count` — currently only camera movement does, see the TODO in `main.c`.
+Note `Clamp(lo, hi, t)` takes the bounds first and the value last — not the usual order.
 
-Accumulation is a running average in `acc_xyz` (lerp by `1/sample_count`), not a running sum. Each
-worker writes one sample per pixel per frame into `xyz`, which is zeroed every frame.
+### Vulkan (`src/vk.c`, `src/vk.h`)
 
-`main.c` also has an unfinished refactor sitting beside it: `src/app.c` / `src/app.h` extract this
-setup into an `App` struct, but they are not in the build and do not compile. Either finish or ignore
-them; they do not reflect current behavior.
+Loaded through **volk** (`volkInitializeCustom` fed from SDL's loader, then `volkLoadInstanceOnly`,
+then `volkLoadDevice`). `main.c` includes `<volk.h>` before any SDL Vulkan header.
 
-### Tracing (`src/worker.c`)
+Split into two objects with separate lifetimes:
 
-Two render modes selected by `ThreadWork.buffer` (`BUFFER_LIGHT` / `BUFFER_NORMALS`, chosen in the
-debug UI). The light path is:
+- **`kfvk_Graphics`** (`kfvk_create_graphics`) — instance, debug messenger, physical device, one
+  universal queue, device, command pool, a single command buffer, and one fence. Device is created
+  with `bufferDeviceAddress`, `VK_KHR_acceleration_structure`, `VK_KHR_deferred_host_operations`,
+  and `VK_KHR_ray_query`. Physical device selection is `devices[0]` — no scoring.
+- **`kfvk_RayTracing`** (`kfvk_create_raytracing_resources`) — the compute pipeline for
+  `trace_test.comp.glsl`, its descriptor set layout/pool/set, a host-visible color output buffer, the
+  vertex buffer, and the BLAS/TLAS.
 
-- One primary ray per pixel through the pixel *center* — there is currently no jitter and therefore
-  no antialiasing.
-- Up to 4 bounces, cosine-weighted diffuse via the `normalize(n + sample_unit_sphere())` trick, with
-  the normal flipped to face the ray and the origin offset by `0.001 * n`.
-- `strength` accumulates `dot(n, dir)` per bounce. A path that escapes the scene keeps its strength
-  (the environment is the only light source); a path that never escapes contributes 0.
-- The escaped energy becomes a single hardcoded wavelength (`120`, i.e. 600 nm) times a hardcoded
-  power, converted to XYZ via the LUT and added to the pixel. There are no materials and no light
-  sampling yet — surface color, emission, and NEE are all absent.
+`kfvk_create_buffer` is the single allocation path: it creates the buffer, finds a memory type, and
+chains `VkMemoryAllocateFlagsInfo` with `DEVICE_ADDRESS_BIT` and fetches the device address whenever
+`SHADER_DEVICE_ADDRESS_BIT` is in the usage flags. There is no allocator — one `VkDeviceMemory` per
+buffer.
 
-### BVH (`src/bvh.c`)
+`build_as_common` builds both the BLAS and the TLAS. It sizes via
+`vkGetAccelerationStructureBuildSizesKHR`, allocates the result buffer plus a scratch buffer padded by
+`minAccelerationStructureScratchOffsetAlignment`, records `vkCmdBuildAccelerationStructuresKHR`, and
+then **submits and blocks on the fence** before returning. Builds are synchronous and one at a time —
+fine for startup, not for anything per-frame.
 
-Embree is used **only as a BVH builder**, not as a tracer. `rtcBuildBVH` is called with custom
-callbacks that allocate a `BvhBuildNode` tree (binary, max leaf size 4, high build quality) out of
-Embree's thread-local allocator. Traversal is hand-written: `embree_bvh_intersect` walks that node
-tree with a 64-deep explicit stack, slab-tests AABBs (`aabb_intersect`) and runs Möller–Trumbore
-(`ray_triangle_intersect` in `kingfisher_core.h`) at the leaves. `rtcIntersect` is never called.
+Geometry is fed as a bare triangle soup: `VK_INDEX_TYPE_NONE_KHR`, one `Triangle` (three `vec3s`) per
+primitive, uploaded straight into a `HOST_VISIBLE | HOST_COHERENT` buffer with `memcpy`. No staging
+buffer, no index buffer, no per-geometry split. The TLAS holds exactly one identity-transform instance.
 
-A second, flattened layout also exists: `Bvh` (SoA `offset` / `meta` / `bounds` / `prims`, where the
-high bit of `meta` marks an internal node and the low 7 bits hold the child or primitive count), plus
-`bvh_build_from_embree_bvh` and `bvh_intersect`. `main.c` builds it, but the workers still traverse
-the pointer-based `EmbreeBvh`; the flattened path is the intended replacement and is currently
-unused.
+`VK_CHECK` logs and continues; `VK_TRY` logs and `return False`. Prefer `VK_TRY` in anything returning
+`b32`.
 
-Both traversals push children unordered — no near/far sorting, so no early termination on distance.
+A large `#if 0` block (`vk.c:121`–`vk.c:520`) holds the previous `kfvk_create` / `kfvk_dispatch` pair
+from before the Graphics/RayTracing split. It is a useful reference for the dispatch-and-readback
+sequence that the new path still needs, but it refers to a `kfvk_State` type that no longer exists.
+
+### Presentation
+
+Currently a CPU round-trip, and deliberately so for now. `main.c` creates an `SDL_Renderer` and a
+streaming `SDL_Texture`, and the compute shader writes `f32` RGB into a host-visible buffer intended
+to be mapped and blitted into that texture. A `VkSurfaceKHR` is created but never used, and although
+`VK_KHR_swapchain` is enabled, no swapchain exists. SDL's renderer runs its own backend, so there are
+effectively two GPU contexts. Rendering directly into a swapchain image is the eventual replacement.
+
+Resolution is hardcoded at 1280x960 in several independent places: `main.c`, the color buffer size in
+`vk.c`, the dispatch counts, and `dim` inside both shaders. Change all of them together.
+
+### Shaders (`src/*.comp.glsl`)
+
+`trace_test.comp.glsl` is the real one: 16x8 workgroups, `GL_EXT_ray_query`, a storage buffer of
+floats at binding 0, the TLAS at binding 1, and a camera UBO at binding 2. It initializes a
+`rayQueryEXT`, drains it with `rayQueryProceedEXT`, and writes a depth-derived grey. It is a single
+primary ray visualization, not a path tracer — no bounces, no RNG, no accumulation, no materials.
+
+`test.comp.glsl` is the older UV-gradient shader with no ray tracing. Still built, no longer loaded.
+
+Watch std140 layout in the UBO: consecutive `vec3`s are 16-byte aligned, so the C-side struct needs
+padding (or `vec4`s) to match.
 
 ### Color pipeline (`src/colorspace.h`, `src/cie_xyz_lut.c`)
 
@@ -99,55 +147,65 @@ Wavelengths are stored in a `u8` with the encoding `nm = stored * 2 + 360`, cove
 2 nm steps (236 significant entries, LUT padded to 256). That encoding exists so `spectral_to_xyz()`
 is a direct table index.
 
-Per frame: `spectral_to_xyz` -> accumulate XYZ -> `normalize_xyz` (hardcoded sRGB reference black and
-white points) -> `normalized_xyz_to_linear_rgb` (sRGB matrix, clamped) -> `linear_rgb_to_srgb`
-(gamma). `xyz_to_srgb_pixels` in `main.c` also flips Y while writing into the SDL texture.
+The chain is `spectral_to_xyz` -> accumulate XYZ -> `normalize_xyz` (hardcoded sRGB reference black
+and white points) -> `normalized_xyz_to_linear_rgb` (sRGB matrix, clamped) -> `linear_rgb_to_srgb`
+(gamma).
+
+**None of this is wired into the Vulkan path yet** — the compute shader emits plain RGB floats.
+Getting the spectral pipeline onto the GPU is the point of the project and is still entirely ahead.
 
 `cie_xyz_lut.c` is generated by `data/gen_cie_xyz_lut.py` from `data/CIE_xyz_1931_2deg.csv` — edit the
-generator, not the table. That script currently has `print_ppm()` enabled and `print_c_lut()`
-commented out in `__main__`; swap them to regenerate the C table.
+generator, not the table. That script has `print_ppm()` enabled and `print_c_lut()` commented out in
+`__main__`; swap them to regenerate the C table.
 
 ### RGB to spectral reflectance (in progress)
 
-Current work is toward Jakob & Hanika 2019 spectral upsampling (the paper PDF is in the repo root).
-Landed so far: `eval_spectral_reflectance()` in `colorspace.h`, which evaluates the
-sigmoid-of-quadratic model `S(c0*l^2 + c1*l + c2)`. Not yet landed: the coefficient tables.
+Work toward Jakob & Hanika 2019 spectral upsampling (the paper PDF is in the repo root). Landed:
+`eval_spectral_reflectance()` in `colorspace.h`, which evaluates the sigmoid-of-quadratic model
+`S(c0*l^2 + c1*l + c2)`. Not landed: the coefficient tables.
 `data/gen_rgb_to_spectral_reflectance.py` (numpy/scipy, L-BFGS-B fit over a 64^3 grid per RGB region)
 is the working generator and emits `src/rgb_to_spectral.h`. `data/gen_rgb_to_sd.c` is an abandoned
-half-written C version of the same idea and does not compile.
+half-written C version and does not compile.
 
-### Scene loading
+### Scene loading (`src/model.c`)
 
-`read_obj_triangles` (fast_obj) and `read_fbx_triangles` (ufbx) both flatten a file into a bare
-`Triangle` array — positions only, no normals, UVs, materials, or per-object grouping. Both assert
-that every face is a triangle; `data/models/TriangulateOBJ.exe` is there for pre-triangulating OBJs.
-The active scene is picked with `#if 1` / `#if 0` blocks in `main()`; Sponza is current and is scaled
-by 0.1 via `transform_triangles`.
+`read_obj_triangles` (fast_obj) and `read_fbx_triangles` (ufbx) both flatten a file into a
+`malloc`'d `Triangle` array — positions only, no normals, UVs, materials, or per-object grouping.
+Both assert that every face is a triangle; `data/models/TriangulateOBJ.exe` is there for
+pre-triangulating OBJs. The active scene is hardcoded in `main()`; it is currently
+`data/models/sponza/sponza.triangulated.obj`.
 
-### UI (`src/ui.c`, `src/ui.h`)
+### CPU tracer (orphaned — `src/worker.c`, `src/bvh.c`, `src/camera.c`)
 
-Nuklear on the SDL3 renderer backend. `ui.h` sets the Nuklear configuration macros (routing
-assert/memset/vsnprintf to SDL) and must be included before any Nuklear header. Note that
-`ui_render()` calls `nk_input_end()` *before* rendering and `nk_input_begin()` after, so the input
-block spans the frame boundary. The debug window itself (`draw_debug_ui`) lives in `main.c` and drives
-camera position, perspective kind, FOV, and buffer selection.
+Kept for reference and still compiled. Workers are parked on a semaphore pair, each owning a
+disjoint horizontal band of rows plus its own `Rng`. Embree is used **only** as a BVH builder
+(`rtcBuildBVH` with custom callbacks); traversal is hand-written and `rtcIntersect` is never called.
+`bvh.c` also has a second flattened SoA layout (`Bvh`, `bvh_intersect`) that was intended to replace
+the pointer-based `EmbreeBvh` and never did. Accumulation was a running average in `acc_xyz` (lerp by
+`1/sample_count`), reset on camera movement.
+
+Do not extend any of this. If the GPU path needs something from here (camera basis math, sampling
+helpers, the RNG), port it rather than reviving the CPU frame loop.
 
 ## Conventions
 
-- Types are the short forms from `kingfisher_core.h` (`u32`, `f32`, ...); `F32_NO_HIT` (`FLT_MAX`) is
-  the miss sentinel in `HitRecord.t` and `aabb_intersect`.
-- Vector math is cglm's struct API (`vec3s`, `glms_vec3_*`). `src/vec3.h` is the superseded
-  hand-rolled version, still present but unused by the build — do not add to it.
-- Small helpers are `inline` in headers (`kingfisher_core.h`, `colorspace.h`) rather than split across
-  a `.c`.
-- `clamp(lo, hi, t)` takes the bounds first and the value last — not the usual order.
-- Y is up; camera orientation is stored as pitch/yaw (`pitch_yaw_to_vec3`), pitch clamped to +-pi/2.
-- Dependencies are vendored under `ext/` (SDL3, Embree 4.4.0, cglm, nuklear, fast_obj, ufbx,
-  xoshiro128+/splitmix64) and included via `-Iext -Iext/SDL -Iext/embree-4.4.0/include -Iext/cglm`.
+- Types are the short forms from `toteload.h` (`u32`, `f32`, `b32`, ...). `b32` for booleans in new
+  Vulkan code, `bool` in the older CPU code.
+- Vector math is cglm's struct API (`vec3s`, `glms_vec3_*`). cglm headers need the
+  `-Wstatic-in-inline` pragma push/pop wrapper used everywhere they are included.
+- Vulkan symbols in `vk.h`/`vk.c` are prefixed `kfvk_` for functions and `kfvk_Buffer`-style for types.
+- Small helpers are `inline` in headers (`toteload.h`, `kingfisher_core.h`, `colorspace.h`) rather
+  than split across a `.c`.
+- Y is up; camera orientation is pitch/yaw (`pitch_yaw_to_vec3`), pitch clamped to +-pi/2.
+- Dependencies are vendored under `vendor/` (SDL3, Embree 4.4.0, cglm, nuklear, fast_obj, ufbx, volk,
+  xoshiro128+/splitmix64) and included via `-Ivendor -Ivendor/SDL -Ivendor/embree-4.4.0/include
+  -Ivendor/cglm`, plus `-isystem $VULKAN_SDK/Include`.
 - `notes.txt` collects the radiometry/photometry background and the data sources behind the LUT.
 
-## Controls
+## Current state of the render loop
 
-WASD to move, Q/E down/up, hold Shift for 4x speed, arrow keys to look. ESC or closing the window
-quits. The image sharpens the longer the camera stays still, since samples accumulate and reset on
-movement.
+As of the `vulkan` branch: acceleration structures build successfully and the ray-query pipeline is
+created, but **nothing is drawn yet**. The frame loop in `main.c` only handles quit/ESC and presents
+an untouched texture. The remaining links in the chain are the descriptor writes, the camera uniform
+buffer, the dispatch, and the buffer-to-texture readback. Camera controls are not wired into the new
+loop either — `update_camera_from_input` exists in the orphaned `camera.c` but is unused.

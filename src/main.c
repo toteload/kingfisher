@@ -17,6 +17,7 @@
 #include "toteload.h"
 #include "vk.h"
 #include "model.h"
+#include "camera.h"
 
 #include <assert.h>
 
@@ -36,8 +37,8 @@ int main(int argc, char *argv[]) {
   int window_width = 1280;
   int window_height = 960;
 
-  kfvk_State vk = {0};
-  b32 ok = kfvk_create(&vk, &scratch, KFVK_USE_VALIDATION);
+  kfvk_Graphics gfx = {0};
+  b32 ok = kfvk_create_graphics(&gfx, KFVK_USE_VALIDATION);
   if (!ok) {
     return 1;
   }
@@ -52,40 +53,21 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  SDL_Texture *screen = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, window_width, window_height);
+  SDL_Texture *screen = SDL_CreateTexture(
+    renderer,
+    SDL_PIXELFORMAT_ABGR8888,
+    SDL_TEXTUREACCESS_STREAMING,
+    window_width,
+    window_height);
   if (!screen) {
     return 1;
   }
 
   VkSurfaceKHR surface;
-  if (!SDL_Vulkan_CreateSurface(window, vk.instance, Null, &surface)) {
+  if (!SDL_Vulkan_CreateSurface(window, gfx.instance, Null, &surface)) {
     SDL_Log("SDL_Vulkan_CreateSurface failed: %s", SDL_GetError());
     return 1;
   }
-
-  if (!kfvk_dispatch(&vk)) {
-    return 1;
-  }
-
-  void *mapped;
-  VK_CHECK(vkMapMemory(vk.device, vk.storage.memory, 0, VK_WHOLE_SIZE, 0, &mapped));
-
-#if 0
-  void *pixels = Null;
-  int pitch;
-  SDL_LockTexture(screen, Null, &pixels, &pitch);
-  for (u32 y = 0; y < window_height; y++) {
-    for (u32 x = 0; x < window_width; x++) {
-      Cast(u8*,pixels)[y * pitch + 4 * x + 0] = Cast(u8, Cast(f32*,mapped)[3 * (y * window_width + x) + 0] * 255.0f);
-      Cast(u8*,pixels)[y * pitch + 4 * x + 1] = Cast(u8, Cast(f32*,mapped)[3 * (y * window_width + x) + 1] * 255.0f);
-      Cast(u8*,pixels)[y * pitch + 4 * x + 2] = Cast(u8, Cast(f32*,mapped)[3 * (y * window_width + x) + 2] * 255.0f);
-      Cast(u8*,pixels)[y * pitch + 4 * x + 3] = 255;
-    }
-  }
-  SDL_UnlockTexture(screen);
-#endif
-
-  SDL_Log("Done copying test texture\n");
 
   Triangle *triangles;
   u64 triangle_count;
@@ -96,11 +78,33 @@ int main(int argc, char *argv[]) {
 
   SDL_Log("[ ok ] Loaded Sponza scene\n");
 
-  if (!build_acceleration_structures(&vk, triangles, triangle_count)) {
+  kfvk_RayTracing rt;
+  if (!kfvk_create_raytracing_resources(&rt, &gfx, &scratch, triangles, triangle_count)) {
     return 1;
   }
 
   SDL_Log("[ ok ] Built acceleration structures\n");
+
+  CameraControls camera;
+  {
+    vec3s position = {{ -55.0f, 64.0f, 0.0f }};
+    f32 pitch, yaw;
+    vec3s dir = glms_vec3_normalize(glms_vec3_sub((vec3s){{0.0f, 0.0f, 0.0f}}, position));
+    vec3_to_pitch_yaw(dir, &pitch, &yaw);
+
+    camera = (CameraControls){
+      .position = position,
+      .pitch = pitch,
+      .yaw = yaw,
+      .move_speed = 18.0f,
+      .rot_speed = 2.0f,
+    };
+  }
+
+  CameraBasis camera_basis;
+  camera_controls_to_basis(&camera, &camera_basis);
+
+  kfvk_rt_update_context(&gfx, &rt, &camera_basis);
 
   SDL_Log("Running...\n");
   b32 running = True;
@@ -115,6 +119,26 @@ int main(int argc, char *argv[]) {
         goto exit;
       }
     }
+
+    kfvk_rt_dispatch(&gfx, &rt);
+
+    void *p;
+    VK_CHECK(vkMapMemory(gfx.device, rt.color_image_buffer.memory, 0, VK_WHOLE_SIZE, 0, &p));
+
+    void *pixels = Null;
+    u32 pitch;
+    SDL_LockTexture(screen, Null, &pixels, &pitch);
+    for (u32 y = 0; y < window_height; y++) {
+      for (u32 x = 0; x < window_width; x++) {
+        Cast(u8*,pixels)[(window_height - y - 1) * pitch + 4 * x + 0] = Cast(u8, Cast(f32*,p)[3 * (y * window_width + x) + 0] * 255.0f);
+        Cast(u8*,pixels)[(window_height - y - 1) * pitch + 4 * x + 1] = Cast(u8, Cast(f32*,p)[3 * (y * window_width + x) + 1] * 255.0f);
+        Cast(u8*,pixels)[(window_height - y - 1) * pitch + 4 * x + 2] = Cast(u8, Cast(f32*,p)[3 * (y * window_width + x) + 2] * 255.0f);
+        Cast(u8*,pixels)[y * pitch + 4 * x + 3] = 255;
+      }
+    }
+    SDL_UnlockTexture(screen);
+
+    vkUnmapMemory(gfx.device, rt.color_image_buffer.memory);
 
     SDL_SetRenderDrawColor(renderer, 0,0,0,0);
     SDL_RenderClear(renderer);

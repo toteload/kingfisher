@@ -12,6 +12,7 @@
 #pragma clang diagnostic pop
 
 #include "toteload.h"
+#include "model.h"
 
 // Basic types
 // -
@@ -24,15 +25,6 @@ typedef struct Ray {
   vec3s dir;
   f32 max_t;
 } Ray;
-
-typedef union Triangle {
-  struct {
-    vec3s v0;
-    vec3s v1;
-    vec3s v2;
-  };
-  vec3s p[3];
-} Triangle;
 
 inline vec3s triangle_normal(Triangle const *triangle) {
   vec3s e1 = glms_vec3_sub(triangle->v1, triangle->v0);

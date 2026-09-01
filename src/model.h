@@ -8,8 +8,11 @@
 
 #include "toteload.h"
 
-typedef struct {
+typedef union {
   vec3s p[3];
+  struct {
+    vec3s v0, v1, v2;
+  };
 } Triangle;
 
 bool read_obj_triangles(char const *filename, Triangle **triangles, u64 *triangle_count);

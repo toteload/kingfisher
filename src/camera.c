@@ -31,7 +31,7 @@ void generate_primary_ray_pinhole(
 ) {
   f32 a = tanf(0.5f * opt->fov_radians);
 
-  vec3s foward = glms_vec3_normalize(
+  vec3s forward = glms_vec3_normalize(
     glms_vec3_add(
       basis->forward,
       glms_vec3_add(
@@ -40,7 +40,7 @@ void generate_primary_ray_pinhole(
 
   *ray = (Ray){
     .origin = basis->position,
-    .dir = foward,
+    .dir = forward,
     .min_t = opt->near,
     .max_t = opt->far,
   };

@@ -11,7 +11,7 @@ OUT_PATH = 'out'
 VENDOR_PATH = 'vendor'
 
 def exe(name):
-        return f'{name}.exe'
+    return f'{name}.exe'
 
 def outd(p):
     return join('$outdir', p.replace('\\', '__').replace('$', ''))
@@ -19,8 +19,16 @@ def outd(p):
 def out_shader(p):
     return join('$outdir', os.path.basename(p))
 
-def merge(a,b):
+def merge_vars(a,b):
     return {k: a.get(k, "") + " " + b.get(k, "") for k in a.keys() | b.keys()}
+
+def merge(a,b):
+    if a == None:
+        return b
+    elif b == None:
+        return a
+    else:
+        pass
 
 def create_build_ninja():
     fout = open('build.ninja', 'w')
@@ -90,6 +98,7 @@ def create_build_ninja():
 
     shaders = [
         (join('src', 'test.comp.glsl'), 'compute'),
+        (join('src', 'trace_test.comp.glsl'), 'compute'),
     ]
 
     for f, stage in shaders:
@@ -125,7 +134,7 @@ def create_build_ninja():
             outputs   = fout,
             rule      = 'compile_c',
             inputs    = f,
-            variables = merge(variables, vars),
+            variables = merge_vars(variables, vars),
             )
 
     out.build(
@@ -138,7 +147,7 @@ def create_build_ninja():
                 '$vendor/embree-4.4.0/lib/embree4.lib',
                 '$vendor/embree-4.4.0/lib/tbb12.lib',
                 '$vendor/cglm/cglm.lib',
-                ]],
+            ]],
             'lflags': '-Wl,/SUBSYSTEM:CONSOLE',
         },
         )
