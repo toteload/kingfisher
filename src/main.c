@@ -86,12 +86,9 @@ int main(int argc, char *argv[]) {
     };
   }
 
-  CameraBasis camera_basis;
-  camera_controls_to_basis(&camera, &camera_basis);
-
-  kfvk_rt_update_context(&gfx, &rt, &camera_basis);
-
   u64 frequency = SDL_GetPerformanceFrequency();
+
+  f32 dt = 0;
 
   SDL_Log("Running...\n");
   b32 running = True;
@@ -109,17 +106,20 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    bool const *keys = SDL_GetKeyboardState(Null);
+    update_camera_from_input(&camera, keys, dt);
+    
+    u64 counter_acquire = SDL_GetPerformanceCounter();
+
     b32 ok = True;
 
     ok = kfvk_swapchain_acquire(&gfx, &swapchain);
 
     u64 counter_dispatch = SDL_GetPerformanceCounter();
 
-    kfvk_rt_dispatch(&gfx, &rt, &swapchain);
-
-    u64 counter_read_image = SDL_GetPerformanceCounter();
-
-    u64 counter_render = SDL_GetPerformanceCounter();
+    CameraBasis camera_basis;
+    camera_controls_to_basis(&camera, &camera_basis);
+    kfvk_rt_dispatch(&gfx, &rt, &swapchain, &camera_basis);
 
     u64 counter_present = SDL_GetPerformanceCounter();
 
@@ -131,13 +131,14 @@ int main(int argc, char *argv[]) {
     f64 to_ms = 1000.0 / Cast(f64, frequency);
     f64 to_pct = 100.0 / Cast(f64, elapsed);
 
-    SDL_Log("%4.2fms | events: %3.1f, dispatch: %3.1f, read: %3.1f, render: %3.1f, present: %3.1f\n",
+    dt = Cast(f32, elapsed) / Cast(f32, frequency);
+
+    SDL_Log("%4.2fms | events: %3.1f, acquire: %3.1f, dispatch: %3.1f, present: %3.1f\n",
       Cast(f64, elapsed) * to_ms,
-      Cast(f64, counter_dispatch   - counter_start)      * to_pct,
-      Cast(f64, counter_read_image - counter_dispatch)   * to_pct,
-      Cast(f64, counter_render     - counter_read_image) * to_pct,
-      Cast(f64, counter_present    - counter_render)     * to_pct,
-      Cast(f64, counter_end        - counter_present)    * to_pct);
+      Cast(f64, counter_acquire - counter_start) * to_pct,
+      Cast(f64, counter_dispatch - counter_acquire) * to_pct,
+      Cast(f64, counter_present - counter_dispatch) * to_pct,
+      Cast(f64, counter_end - counter_present) * to_pct);
   }
 
 exit:
@@ -149,5 +150,3 @@ exit:
 
   return 0;
 }
-
-

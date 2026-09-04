@@ -94,7 +94,6 @@ typedef struct {
 
   kfvk_Image color_image;
 
-  kfvk_Buffer context_buffer;
   kfvk_Buffer vertex_buffer;
   kfvk_AccelerationStructure blas;
   kfvk_AccelerationStructure tlas;
@@ -106,8 +105,7 @@ void kfvk_destroy_graphics(kfvk_Graphics *graphics);
 b32 kfvk_create_raytracing_resources(kfvk_RayTracing *rt, kfvk_Graphics *gfx, Arena *scratch, Triangle const *triangles, u64 triangle_count);
 void kfvk_destroy_raytracing_resources(kfvk_RayTracing *rt, kfvk_Graphics *gfx);
 
-b32 kfvk_rt_update_context(kfvk_Graphics *gfx, kfvk_RayTracing *rt, CameraBasis const *camera);
-b32 kfvk_rt_dispatch(kfvk_Graphics *gfx, kfvk_RayTracing *rt, kfvk_Swapchain *swapchain);
+b32 kfvk_rt_dispatch(kfvk_Graphics *gfx, kfvk_RayTracing *rt, kfvk_Swapchain *swapchain, CameraBasis const *camera);
 
 b32 kfvk_create_buffer(
   kfvk_Buffer *b,

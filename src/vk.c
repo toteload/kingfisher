@@ -570,6 +570,12 @@ b32 kfvk_create_raytracing_resources(
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
       .setLayoutCount = 1,
       .pSetLayouts = &descriptor_set_layout,
+      .pushConstantRangeCount = 1,
+      .pPushConstantRanges = &(VkPushConstantRange){
+        .offset = 0,
+        .size = sizeof(RaytraceContext),
+        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      },
     };
 
     VK_TRY(vkCreatePipelineLayout(g->device, &pipeline_layout_info, Null, &pipeline_layout));
@@ -617,7 +623,8 @@ b32 kfvk_create_raytracing_resources(
       .layout = pipeline_layout,
     };
 
-    VK_TRY(vkCreateComputePipelines(g->device, Null, 1, &compute_pipeline_info, Null, &pipeline));
+    VK_TRY(vkCreateComputePipelines(
+      g->device, Null, 1, &compute_pipeline_info, Null, &pipeline));
     vkDestroyShaderModule(g->device, shader_module, Null);
   }
 
@@ -633,10 +640,6 @@ b32 kfvk_create_raytracing_resources(
         .type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
         .descriptorCount = 1,
       },
-      {
-        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = 1,
-      }
     };
 
     VkDescriptorPoolCreateInfo descriptor_pool_info = {
@@ -656,20 +659,6 @@ b32 kfvk_create_raytracing_resources(
     };
 
     VK_TRY(vkAllocateDescriptorSets(g->device, &descriptor_set_alloc_info, &descriptor_set));
-  }
-
-  kfvk_Buffer context_buffer;
-  {
-    if (!kfvk_create_buffer(
-          &context_buffer,
-          g->physical_device,
-          g->device,
-          sizeof(RaytraceContext),
-          VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
-    {
-      return False;
-    }
   }
 
   VkDeviceSize size = triangle_count * sizeof(Triangle);
@@ -820,19 +809,6 @@ b32 kfvk_create_raytracing_resources(
           .pAccelerationStructures = &tlas.handle,
         },
       },
-      {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .dstSet = descriptor_set,
-        .dstBinding = 2,
-        .dstArrayElement = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .pBufferInfo = &(VkDescriptorBufferInfo){
-          .buffer = context_buffer.buffer,
-          .offset = 0,
-          .range = VK_WHOLE_SIZE,
-        },
-      },
     };
 
     vkUpdateDescriptorSets(g->device, Count_of(writes), writes, 0, Null);
@@ -845,7 +821,6 @@ b32 kfvk_create_raytracing_resources(
     .descriptor_pool = descriptor_pool,
     .descriptor_set = descriptor_set,
     .color_image = color_image,
-    .context_buffer = context_buffer,
     .vertex_buffer = vertex_buffer,
     .blas = blas,
     .tlas = tlas,
@@ -854,22 +829,12 @@ b32 kfvk_create_raytracing_resources(
   return True;
 }
 
-b32 kfvk_rt_update_context(kfvk_Graphics *g, kfvk_RayTracing *r, CameraBasis const *cam) {
-  void *p;
-  VK_TRY(vkMapMemory(g->device, r->context_buffer.memory, 0, VK_WHOLE_SIZE, 0, &p));
-  RaytraceContext context = {
-    .cam_position = cam->position,
-    .cam_forward = cam->forward,
-    .cam_du = cam->du,
-    .cam_dv = cam->dv,
-  };
-  memcpy(p, &context, sizeof(RaytraceContext));
-  vkUnmapMemory(g->device, r->context_buffer.memory);
-
-  return True;
-}
-
-b32 kfvk_rt_dispatch(kfvk_Graphics *g, kfvk_RayTracing *r, kfvk_Swapchain *s) {
+b32 kfvk_rt_dispatch(
+  kfvk_Graphics *g,
+  kfvk_RayTracing *r,
+  kfvk_Swapchain *s,
+  CameraBasis const *camera)
+{
   VkCommandBuffer cmds = g->command_buffer[s->frame_idx];
 
   VK_TRY(vkResetCommandBuffer(cmds, 0));
@@ -903,6 +868,17 @@ b32 kfvk_rt_dispatch(kfvk_Graphics *g, kfvk_RayTracing *r, kfvk_Swapchain *s) {
     0, Null,
     0, Null,
     1, &ready_color_image_barrier);
+
+  vkCmdPushConstants(
+    cmds,
+    r->pipeline_layout,
+    VK_SHADER_STAGE_COMPUTE_BIT,
+    0, sizeof(RaytraceContext), &(RaytraceContext){
+      .cam_position = camera->position,
+      .cam_forward = camera->forward,
+      .cam_du = camera->du,
+      .cam_dv = camera->dv,
+    });
 
   vkCmdBindPipeline(cmds, VK_PIPELINE_BIND_POINT_COMPUTE, r->pipeline);
   vkCmdBindDescriptorSets(
@@ -972,7 +948,7 @@ b32 kfvk_rt_dispatch(kfvk_Graphics *g, kfvk_RayTracing *r, kfvk_Swapchain *s) {
         .layerCount = 1,
       },
       .srcOffsets = { {0,0,0}, {1280,960,1}, },
-      .dstOffsets = { {0,0,0}, {1280,960,1}, },
+      .dstOffsets = { {0,960,0}, {1280,0,1}, },
     },
     VK_FILTER_LINEAR);
 
