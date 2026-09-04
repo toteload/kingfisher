@@ -5,12 +5,8 @@ const float PI = 3.14159265358979323846;
 
 layout(local_size_x=16, local_size_y=8, local_size_z=1) in;
 
-layout(binding=0, set=0) buffer storage_buffer {
-  float image[];
-};
-
+layout(binding=0, set=0, rgba32f) uniform writeonly image2D image;
 layout(binding=1, set=0) uniform accelerationStructureEXT tlas;
-
 layout(binding=2, set=0) uniform context {
   vec3 cam_position;
   vec3 cam_forward;
@@ -19,16 +15,12 @@ layout(binding=2, set=0) uniform context {
 };
 
 void main() {
-  //const vec3 origin = cam_origin; // vec3(-55.0, 64.0, 0.0);
-  //const vec3 dir = cam_dir; // normalize(vec3(0.0) - origin);
-  const uvec2 dim = uvec2(1280, 960);
+  const ivec2 dim = imageSize(image);
   const float fov_radians = 0.5 * PI;
   const float inv_aspect_ratio = float(dim.y) / float(dim.x);
-  const uvec2 pixel = gl_GlobalInvocationID.xy;
+  const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
 
-  uint idx = pixel.x + pixel.y * dim.x;
-
-  if (idx >= dim.x * dim.y) {
+  if (any(greaterThanEqual(pixel, dim))) {
     return;
   }
 
@@ -55,7 +47,5 @@ void main() {
     color = vec3(min(t / 400.0, 1.0));
   }
 
-  image[idx * 3 + 0] = color.r;
-  image[idx * 3 + 1] = color.g;
-  image[idx * 3 + 2] = color.b;
+  imageStore(image, pixel, vec4(color, 1.0));
 }

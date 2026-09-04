@@ -37,35 +37,20 @@ int main(int argc, char *argv[]) {
   int window_width = 1280;
   int window_height = 960;
 
-  kfvk_Graphics gfx = {0};
-  b32 ok = kfvk_create_graphics(&gfx, KFVK_USE_VALIDATION);
-  if (!ok) {
-    return 1;
-  }
-
   SDL_Window *window = SDL_CreateWindow("Kingfisher", window_width, window_height, SDL_WINDOW_VULKAN);
   if (!window) {
     return 1;
   }
 
-  SDL_Renderer *renderer = SDL_CreateRenderer(window, Null);
-  if (!renderer) {
+  kfvk_Graphics gfx = {0};
+  b32 ok = kfvk_create_graphics(&gfx, window, KFVK_USE_VALIDATION);
+  if (!ok) {
     return 1;
   }
 
-  SDL_Texture *screen = SDL_CreateTexture(
-    renderer,
-    SDL_PIXELFORMAT_ABGR8888,
-    SDL_TEXTUREACCESS_STREAMING,
-    window_width,
-    window_height);
-  if (!screen) {
-    return 1;
-  }
-
-  VkSurfaceKHR surface;
-  if (!SDL_Vulkan_CreateSurface(window, gfx.instance, Null, &surface)) {
-    SDL_Log("SDL_Vulkan_CreateSurface failed: %s", SDL_GetError());
+  kfvk_Swapchain swapchain = {0};
+  ok = kfvk_create_swapchain(&swapchain, &gfx, window);
+  if (!ok) {
     return 1;
   }
 
@@ -106,9 +91,13 @@ int main(int argc, char *argv[]) {
 
   kfvk_rt_update_context(&gfx, &rt, &camera_basis);
 
+  u64 frequency = SDL_GetPerformanceFrequency();
+
   SDL_Log("Running...\n");
   b32 running = True;
   while (running) {
+    u64 counter_start = SDL_GetPerformanceCounter();
+
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_EVENT_QUIT) {
@@ -120,31 +109,35 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    kfvk_rt_dispatch(&gfx, &rt);
+    b32 ok = True;
 
-    void *p;
-    VK_CHECK(vkMapMemory(gfx.device, rt.color_image_buffer.memory, 0, VK_WHOLE_SIZE, 0, &p));
+    ok = kfvk_swapchain_acquire(&gfx, &swapchain);
 
-    void *pixels = Null;
-    u32 pitch;
-    SDL_LockTexture(screen, Null, &pixels, &pitch);
-    for (u32 y = 0; y < window_height; y++) {
-      for (u32 x = 0; x < window_width; x++) {
-        Cast(u8*,pixels)[(window_height - y - 1) * pitch + 4 * x + 0] = Cast(u8, Cast(f32*,p)[3 * (y * window_width + x) + 0] * 255.0f);
-        Cast(u8*,pixels)[(window_height - y - 1) * pitch + 4 * x + 1] = Cast(u8, Cast(f32*,p)[3 * (y * window_width + x) + 1] * 255.0f);
-        Cast(u8*,pixels)[(window_height - y - 1) * pitch + 4 * x + 2] = Cast(u8, Cast(f32*,p)[3 * (y * window_width + x) + 2] * 255.0f);
-        Cast(u8*,pixels)[y * pitch + 4 * x + 3] = 255;
-      }
-    }
-    SDL_UnlockTexture(screen);
+    u64 counter_dispatch = SDL_GetPerformanceCounter();
 
-    vkUnmapMemory(gfx.device, rt.color_image_buffer.memory);
+    kfvk_rt_dispatch(&gfx, &rt, &swapchain);
 
-    SDL_SetRenderDrawColor(renderer, 0,0,0,0);
-    SDL_RenderClear(renderer);
-    SDL_RenderTexture(renderer, screen, Null, Null);
+    u64 counter_read_image = SDL_GetPerformanceCounter();
 
-    SDL_RenderPresent(renderer);
+    u64 counter_render = SDL_GetPerformanceCounter();
+
+    u64 counter_present = SDL_GetPerformanceCounter();
+
+    ok = kfvk_swapchain_present_and_wait(&gfx, &swapchain);
+
+    u64 counter_end = SDL_GetPerformanceCounter();
+
+    u64 elapsed = counter_end - counter_start;
+    f64 to_ms = 1000.0 / Cast(f64, frequency);
+    f64 to_pct = 100.0 / Cast(f64, elapsed);
+
+    SDL_Log("%4.2fms | events: %3.1f, dispatch: %3.1f, read: %3.1f, render: %3.1f, present: %3.1f\n",
+      Cast(f64, elapsed) * to_ms,
+      Cast(f64, counter_dispatch   - counter_start)      * to_pct,
+      Cast(f64, counter_read_image - counter_dispatch)   * to_pct,
+      Cast(f64, counter_render     - counter_read_image) * to_pct,
+      Cast(f64, counter_present    - counter_render)     * to_pct,
+      Cast(f64, counter_end        - counter_present)    * to_pct);
   }
 
 exit:

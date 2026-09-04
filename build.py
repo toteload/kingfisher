@@ -88,6 +88,7 @@ def create_build_ninja():
         command = ' '.join([
             f'{VULKAN_PATH}/Bin/glslc',
             '-MD -MF $out.d',
+            '-O',
             '--target-env=vulkan1.3',
             '--target-spv=spv1.4',
             '-fshader-stage=$stage',
@@ -110,7 +111,7 @@ def create_build_ninja():
         )
 
     inputs = [
-        *[(join('src', x), {'cflags': '-g -gcodeview'}) for x in [
+        *[(join('src', x), {'cflags': '-g -gcodeview -O2'}) for x in [
             'main.c',
             'cie_xyz_lut.c',
             'bvh.c',
