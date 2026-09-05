@@ -548,7 +548,7 @@ b32 kfvk_create_raytracing_resources(
       },
       {
         .binding = 2,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .descriptorCount = 1,
         .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
       },
@@ -638,6 +638,10 @@ b32 kfvk_create_raytracing_resources(
       },
       {
         .type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+        .descriptorCount = 1,
+      },
+      {
+        .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         .descriptorCount = 1,
       },
     };
@@ -753,6 +757,52 @@ b32 kfvk_create_raytracing_resources(
     if (!ok) {
       Todo();
     }
+
+    VkCommandBuffer cmds = g->command_buffer[0];
+
+    VK_TRY(vkResetCommandBuffer(cmds, 0));
+
+    VkCommandBufferBeginInfo begin_info = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+
+    VK_TRY(vkBeginCommandBuffer(cmds, &begin_info));
+
+    VkImageMemoryBarrier ready_color_image_barrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      .srcAccessMask = VK_ACCESS_NONE,
+      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+      .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+      .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .image = color_image.image,
+      .subresourceRange = {
+        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .levelCount = 1,
+        .layerCount = 1,
+      },
+    };
+
+    vkCmdPipelineBarrier(
+      cmds,
+      VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+      0, Null,
+      0, Null,
+      1, &ready_color_image_barrier);
+
+    VK_TRY(vkEndCommandBuffer(cmds));
+
+    VkSubmitInfo submit_info = {
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+      .commandBufferCount = 1,
+      .pCommandBuffers = &cmds,
+    };
+
+    VK_TRY(vkResetFences(g->device, 1, &g->fence));
+    VK_TRY(vkQueueSubmit(g->queue, 1, &submit_info, g->fence));
+    VK_TRY(vkWaitForFences(g->device, 1, &g->fence, VK_TRUE, UINT64_MAX));
   }
 
   {
@@ -809,6 +859,19 @@ b32 kfvk_create_raytracing_resources(
           .pAccelerationStructures = &tlas.handle,
         },
       },
+      {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .dstSet = descriptor_set,
+        .dstBinding = 2,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        .pBufferInfo = &(VkDescriptorBufferInfo){
+          .buffer = vertex_buffer.buffer,
+          .offset = 0,
+          .range = VK_WHOLE_SIZE,
+        },
+      },
     };
 
     vkUpdateDescriptorSets(g->device, Count_of(writes), writes, 0, Null);
@@ -833,7 +896,7 @@ b32 kfvk_rt_dispatch(
   kfvk_Graphics *g,
   kfvk_RayTracing *r,
   kfvk_Swapchain *s,
-  CameraBasis const *camera)
+  RaytraceContext const *context)
 {
   VkCommandBuffer cmds = g->command_buffer[s->frame_idx];
 
@@ -848,9 +911,9 @@ b32 kfvk_rt_dispatch(
 
   VkImageMemoryBarrier ready_color_image_barrier = {
     .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-    .srcAccessMask = 0,
-    .dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-    .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+    .srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+    .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+    .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
     .newLayout = VK_IMAGE_LAYOUT_GENERAL,
     .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
     .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -864,7 +927,7 @@ b32 kfvk_rt_dispatch(
 
   vkCmdPipelineBarrier(
     cmds,
-    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
+    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0,
     0, Null,
     0, Null,
     1, &ready_color_image_barrier);
@@ -873,12 +936,7 @@ b32 kfvk_rt_dispatch(
     cmds,
     r->pipeline_layout,
     VK_SHADER_STAGE_COMPUTE_BIT,
-    0, sizeof(RaytraceContext), &(RaytraceContext){
-      .cam_position = camera->position,
-      .cam_forward = camera->forward,
-      .cam_du = camera->du,
-      .cam_dv = camera->dv,
-    });
+    0, sizeof(RaytraceContext), context);
 
   vkCmdBindPipeline(cmds, VK_PIPELINE_BIND_POINT_COMPUTE, r->pipeline);
   vkCmdBindDescriptorSets(

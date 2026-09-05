@@ -89,6 +89,7 @@ int main(int argc, char *argv[]) {
   u64 frequency = SDL_GetPerformanceFrequency();
 
   f32 dt = 0;
+  u32 sample_idx = 0;
 
   SDL_Log("Running...\n");
   b32 running = True;
@@ -106,8 +107,12 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    CameraControls camera_prev = camera;
     bool const *keys = SDL_GetKeyboardState(Null);
     update_camera_from_input(&camera, keys, dt);
+    if (camera_has_moved(&camera, &camera_prev)) {
+      sample_idx = 0;
+    } 
     
     u64 counter_acquire = SDL_GetPerformanceCounter();
 
@@ -119,7 +124,14 @@ int main(int argc, char *argv[]) {
 
     CameraBasis camera_basis;
     camera_controls_to_basis(&camera, &camera_basis);
-    kfvk_rt_dispatch(&gfx, &rt, &swapchain, &camera_basis);
+    RaytraceContext context = (RaytraceContext){
+      .cam_position = camera_basis.position,
+      .cam_forward = camera_basis.forward,
+      .cam_du = camera_basis.du,
+      .cam_dv = camera_basis.dv,
+      .sample_index = sample_idx,
+    };
+    kfvk_rt_dispatch(&gfx, &rt, &swapchain, &context);
 
     u64 counter_present = SDL_GetPerformanceCounter();
 
@@ -139,6 +151,8 @@ int main(int argc, char *argv[]) {
       Cast(f64, counter_dispatch - counter_acquire) * to_pct,
       Cast(f64, counter_present - counter_dispatch) * to_pct,
       Cast(f64, counter_end - counter_present) * to_pct);
+
+    sample_idx++;
   }
 
 exit:

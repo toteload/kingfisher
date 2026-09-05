@@ -82,6 +82,7 @@ typedef struct {
   alignas(16) vec3s cam_forward;
   alignas(16) vec3s cam_du;
   alignas(16) vec3s cam_dv;
+  u32 sample_index;
 } RaytraceContext;
 
 typedef struct {
@@ -105,7 +106,7 @@ void kfvk_destroy_graphics(kfvk_Graphics *graphics);
 b32 kfvk_create_raytracing_resources(kfvk_RayTracing *rt, kfvk_Graphics *gfx, Arena *scratch, Triangle const *triangles, u64 triangle_count);
 void kfvk_destroy_raytracing_resources(kfvk_RayTracing *rt, kfvk_Graphics *gfx);
 
-b32 kfvk_rt_dispatch(kfvk_Graphics *gfx, kfvk_RayTracing *rt, kfvk_Swapchain *swapchain, CameraBasis const *camera);
+b32 kfvk_rt_dispatch(kfvk_Graphics *gfx, kfvk_RayTracing *rt, kfvk_Swapchain *swapchain, RaytraceContext const *context);
 
 b32 kfvk_create_buffer(
   kfvk_Buffer *b,
